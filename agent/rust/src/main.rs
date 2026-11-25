@@ -2,14 +2,49 @@ mod protocol;
 mod spool;
 
 use anyhow::{anyhow, Context, Result};
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
 use chrono::{SecondsFormat, Utc};
-use protocol::{read_message, write_message, BrowserObservation, SecurityEvent};
+use protocol::{
+    provider_id, read_message, validate_file_start, write_message, AgentMessage, Inspection,
+    SecurityEvent, CHUNK_SIZE, MAX_FILE_SIZE,
+};
+use serde::Deserialize;
 use serde_json::json;
-use std::io::{stdin, stdout};
+use std::io::{stdin, stdout, Write};
 use std::path::PathBuf;
+use std::process::{Command, Stdio};
 use uuid::Uuid;
 
-const MAX_MESSAGE_BYTES: usize = 1024 * 1024;
+const MAX_MESSAGE_BYTES: usize = 512 * 1024;
+const MAX_FINDING_CATEGORIES: usize = 50;
+
+struct PendingFile {
+    file_id: String,
+    provider_domain: String,
+    file_name: String,
+    mime_type: String,
+    size_bytes: u64,
+    total_chunks: usize,
+    next_chunk: usize,
+    bytes: Vec<u8>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ScanOutput {
+    #[serde(default)]
+    complete: bool,
+    #[serde(default)]
+    risk_score: u8,
+    #[serde(default)]
+    findings: Vec<ScanFinding>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ScanFinding {
+    category: String,
+    severity: String,
+}
 
 fn allowed_origin(origin: &str) -> bool {
     if std::env::var("AEGIS_ALLOW_UNVERIFIED_ORIGIN").as_deref() == Ok("1") {
@@ -53,27 +88,100 @@ fn os_name() -> &'static str {
     }
 }
 
-fn build_event(observation: BrowserObservation) -> Result<SecurityEvent> {
-    observation.validate()?;
+fn failed_inspection() -> Inspection {
+    Inspection {
+        status: "failed".into(),
+        risk_score: 0,
+        severity: "none".into(),
+        categories: vec![],
+    }
+}
+
+fn scan_local_file(filename: &str, bytes: &[u8]) -> Result<Inspection> {
+    if bytes.len() as u64 > MAX_FILE_SIZE {
+        return Err(anyhow!("file exceeds inspection size limit"));
+    }
+
+    let executable = std::env::var("AEGIS_PYTHON").unwrap_or_else(|_| {
+        if cfg!(target_os = "windows") {
+            "python".into()
+        } else {
+            "python3".into()
+        }
+    });
+    let engine_path = match std::env::var("AEGIS_ENGINE_PATH") {
+        Ok(value) if !value.trim().is_empty() => PathBuf::from(value),
+        _ => std::env::current_exe()?
+            .parent()
+            .ok_or_else(|| anyhow!("agent executable directory unavailable"))?
+            .join("engine"),
+    };
+
+    let mut child = Command::new(executable)
+        .arg("-m")
+        .arg("aegis_inspector.cli")
+        .arg("--stdin-file")
+        .arg("--filename")
+        .arg(filename)
+        .current_dir(engine_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .context("local Python inspector could not start")?;
+
+    let mut child_stdin = child.stdin.take().ok_or_else(|| anyhow!("inspector stdin unavailable"))?;
+    child_stdin.write_all(bytes).context("could not stream file to local inspector")?;
+    drop(child_stdin);
+
+    let output = child.wait_with_output().context("local inspector failed")?;
+    let report: ScanOutput = serde_json::from_slice(&output.stdout)
+        .context("local inspector returned invalid report")?;
+
+    let mut categories = report
+        .findings
+        .iter()
+        .map(|item| item.category.trim().to_owned())
+        .filter(|item| !item.is_empty())
+        .collect::<Vec<_>>();
+    categories.sort();
+    categories.dedup();
+    categories.truncate(MAX_FINDING_CATEGORIES);
+
+    let severity = report
+        .findings
+        .iter()
+        .map(|item| item.severity.as_str())
+        .max_by_key(|severity| match *severity {
+            "critical" => 5,
+            "high" => 4,
+            "medium" => 3,
+            "low" => 2,
+            _ => 1,
+        })
+        .unwrap_or("none")
+        .to_owned();
+
+    Ok(Inspection {
+        status: if report.complete { "completed" } else { "failed" }.into(),
+        risk_score: report.risk_score.min(100),
+        severity,
+        categories,
+    })
+}
+
+fn build_event(file: PendingFile, inspection: Inspection) -> Result<SecurityEvent> {
     let hostname = hostname::get()?.to_string_lossy().to_string();
     let username = whoami::username();
-    let file_name = PathBuf::from(&observation.file.name)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| anyhow!("invalid file basename"))?
-        .chars()
-        .take(255)
-        .collect::<String>();
-    if file_name.is_empty() || file_name.contains('/') || file_name.contains('\\') {
-        return Err(anyhow!("invalid file basename"));
-    }
-    let extension = PathBuf::from(&file_name)
+    let extension = PathBuf::from(&file.file_name)
         .extension()
         .and_then(|value| value.to_str())
         .unwrap_or("")
         .chars()
         .take(32)
         .collect();
+    let provider = provider_id(&file.provider_domain)
+        .ok_or_else(|| anyhow!("unsupported provider"))?;
 
     Ok(SecurityEvent {
         event_id: Uuid::new_v4().to_string(),
@@ -88,21 +196,20 @@ fn build_event(observation: BrowserObservation) -> Result<SecurityEvent> {
             hostname,
             os: os_name().into(),
         },
-        provider: observation.provider,
-        provider_domain: observation.provider_domain,
-        event_type: "attachment_selected".into(),
+        provider: provider.into(),
+        provider_domain: file.provider_domain,
+        event_type: if inspection.status == "completed" {
+            "inspection_completed".into()
+        } else {
+            "unknown".into()
+        },
         file: protocol::FileMetadata {
-            name: file_name,
+            name: file.file_name,
             extension,
-            mime_type: observation.file.mime_type.chars().take(127).collect(),
-            size_bytes: observation.file.size_bytes,
+            mime_type: file.mime_type,
+            size_bytes: file.size_bytes,
         },
-        inspection: protocol::Inspection {
-            status: "not_inspected".into(),
-            risk_score: 0,
-            severity: "none".into(),
-            categories: vec![],
-        },
+        inspection,
         outcome: "observed".into(),
         enforcement: protocol::Enforcement {
             confirmed: false,
@@ -138,41 +245,118 @@ fn forward_event(event: &SecurityEvent) -> &'static str {
     }
 }
 
+fn handle_message(message: AgentMessage, pending: &mut Option<PendingFile>) -> Result<serde_json::Value> {
+    match message {
+        AgentMessage::FileStart {
+            file_id,
+            provider_domain,
+            file_name,
+            mime_type,
+            size_bytes,
+            total_chunks,
+        } => {
+            if pending.is_some() {
+                return Err(anyhow!("another file transfer is already active"));
+            }
+            validate_file_start(
+                &file_id,
+                &provider_domain,
+                &file_name,
+                &mime_type,
+                size_bytes,
+                total_chunks,
+            )?;
+            *pending = Some(PendingFile {
+                file_id,
+                provider_domain,
+                file_name,
+                mime_type,
+                size_bytes,
+                total_chunks,
+                next_chunk: 0,
+                bytes: Vec::with_capacity(size_bytes as usize),
+            });
+            Ok(json!({"type":"ack","stage":"file_started"}))
+        }
+        AgentMessage::FileChunk {
+            file_id,
+            index,
+            data_base64,
+        } => {
+            let transfer = pending.as_mut().ok_or_else(|| anyhow!("no active file transfer"))?;
+            if transfer.file_id != file_id || index != transfer.next_chunk {
+                return Err(anyhow!("file chunk sequence mismatch"));
+            }
+            let decoded = STANDARD.decode(data_base64.as_bytes())
+                .context("invalid file chunk encoding")?;
+            let remaining = transfer.size_bytes as usize - transfer.bytes.len();
+            let expected = remaining.min(CHUNK_SIZE);
+            if decoded.len() != expected {
+                return Err(anyhow!("file chunk size mismatch"));
+            }
+            transfer.bytes.extend_from_slice(&decoded);
+            transfer.next_chunk += 1;
+            Ok(json!({"type":"ack","stage":"chunk_received","index":index}))
+        }
+        AgentMessage::FileEnd { file_id } => {
+            let transfer = pending.take().ok_or_else(|| anyhow!("no active file transfer"))?;
+            if transfer.file_id != file_id
+                || transfer.next_chunk != transfer.total_chunks
+                || transfer.bytes.len() as u64 != transfer.size_bytes
+            {
+                return Err(anyhow!("file transfer is incomplete"));
+            }
+
+            let inspection = match scan_local_file(&transfer.file_name, &transfer.bytes) {
+                Ok(value) => value,
+                Err(_) => failed_inspection(),
+            };
+            let event = build_event(transfer, inspection)?;
+            let event_json = serde_json::to_value(&event)?;
+            spool::append(&event_json)?;
+            let remote_delivery = forward_event(&event);
+            Ok(json!({
+                "type": "inspection_result",
+                "event_id": event.event_id,
+                "event_type": event.event_type,
+                "inspection": event.inspection,
+                "outcome": event.outcome,
+                "remote_delivery": remote_delivery
+            }))
+        }
+    }
+}
+
 fn run() -> Result<()> {
     let origin = std::env::args().nth(1).unwrap_or_default();
     if !allowed_origin(&origin) {
         return Err(anyhow!("Native Messaging origin is not allowlisted"));
     }
+
     let input = stdin();
     let output = stdout();
     let mut reader = input.lock();
     let mut writer = output.lock();
+    let mut pending: Option<PendingFile> = None;
 
     loop {
-        let message = match read_message(&mut reader, MAX_MESSAGE_BYTES)? {
+        let frame = match read_message(&mut reader, MAX_MESSAGE_BYTES)? {
             Some(value) => value,
             None => break,
         };
-        let result = (|| -> Result<serde_json::Value> {
-            let observation: BrowserObservation =
-                serde_json::from_slice(&message).context("invalid browser observation")?;
-            let event = build_event(observation)?;
-            let event_json = serde_json::to_value(&event)?;
-            spool::append(&event_json)?;
-            let remote_delivery = forward_event(&event);
-            Ok(json!({
-                "type": "ack",
-                "event_id": event.event_id,
-                "local_recorded": true,
-                "remote_delivery": remote_delivery,
-                "event_type": event.event_type
-            }))
-        })();
-        let response = match result {
-            Ok(value) => value,
-            Err(error) => {
-                eprintln!("AegisAI agent rejected message: {error}");
-                json!({"type":"error","code":"invalid_or_unavailable","message":"Event was not accepted"})
+        let parsed = serde_json::from_slice::<AgentMessage>(&frame)
+            .context("invalid Native Messaging message");
+        let response = match parsed {
+            Ok(message) => match handle_message(message, &mut pending) {
+                Ok(value) => value,
+                Err(_) => {
+                    pending = None;
+                    json!({"type":"error","code":"inspection_message_rejected"})
+                }
+            },
+            Err(_) => {
+                pending = None;
+                json!({"type":"error","code":"inspection_message_rejected"})
             }
         };
         write_message(&mut writer, &response)?;

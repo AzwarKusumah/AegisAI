@@ -1,48 +1,81 @@
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
+use uuid::Uuid;
+
+pub const CHUNK_SIZE: usize = 256 * 1024;
+pub const MAX_FILE_SIZE: u64 = 10 * 1024 * 1024;
+pub const MAX_CHUNKS: usize = 40;
 
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct BrowserObservation {
-    pub provider: String,
-    pub provider_domain: String,
-    pub event_type: String,
-    pub file: ObservedFile,
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum AgentMessage {
+    FileStart {
+        file_id: String,
+        provider_domain: String,
+        file_name: String,
+        mime_type: String,
+        size_bytes: u64,
+        total_chunks: usize,
+    },
+    FileChunk {
+        file_id: String,
+        index: usize,
+        data_base64: String,
+    },
+    FileEnd {
+        file_id: String,
+    },
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ObservedFile {
-    pub name: String,
-    pub mime_type: String,
-    pub size_bytes: u64,
-}
-
-impl BrowserObservation {
-    pub fn validate(&self) -> Result<()> {
-        let providers = [
-            "chatgpt.com",
-            "claude.ai",
-            "gemini.google.com",
-            "copilot.microsoft.com",
-            "perplexity.ai",
-            "grok.com",
-        ];
-        if !providers.contains(&self.provider_domain.as_str()) {
-            return Err(anyhow!("unsupported provider domain"));
-        }
-        if self.event_type != "attachment_selected" {
-            return Err(anyhow!("unsupported event type"));
-        }
-        if self.file.name.trim().is_empty() || self.file.name.len() > 1024 {
-            return Err(anyhow!("invalid file name"));
-        }
-        if self.file.mime_type.len() > 127 || self.file.size_bytes > 1_073_741_824 {
-            return Err(anyhow!("file metadata exceeds limits"));
-        }
-        Ok(())
+pub fn provider_id(domain: &str) -> Option<&'static str> {
+    match domain {
+        "chatgpt.com" => Some("chatgpt"),
+        "claude.ai" => Some("claude"),
+        "gemini.google.com" => Some("gemini"),
+        "copilot.microsoft.com" => Some("copilot"),
+        "perplexity.ai" => Some("perplexity"),
+        "grok.com" => Some("grok"),
+        _ => None,
     }
+}
+
+pub fn validate_file_start(
+    file_id: &str,
+    provider_domain: &str,
+    file_name: &str,
+    mime_type: &str,
+    size_bytes: u64,
+    total_chunks: usize,
+) -> Result<()> {
+    Uuid::parse_str(file_id).map_err(|_| anyhow!("invalid file identifier"))?;
+    if provider_id(provider_domain).is_none() {
+        return Err(anyhow!("unsupported provider domain"));
+    }
+    if file_name.trim().is_empty()
+        || file_name.len() > 255
+        || file_name.contains('/')
+        || file_name.contains('\\')
+        || file_name == "."
+        || file_name == ".."
+    {
+        return Err(anyhow!("invalid file basename"));
+    }
+    if mime_type.len() > 127 {
+        return Err(anyhow!("invalid MIME type"));
+    }
+    if size_bytes > MAX_FILE_SIZE {
+        return Err(anyhow!("file exceeds inspection size limit"));
+    }
+    let expected_chunks = if size_bytes == 0 {
+        0
+    } else {
+        ((size_bytes as usize) + CHUNK_SIZE - 1) / CHUNK_SIZE
+    };
+    if total_chunks != expected_chunks || total_chunks > MAX_CHUNKS {
+        return Err(anyhow!("invalid chunk count"));
+    }
+    Ok(())
 }
 
 #[derive(Debug, Serialize)]
@@ -127,7 +160,7 @@ mod tests {
 
     #[test]
     fn reads_native_messaging_frame() {
-        let payload = br#"{"ok":true}"#;
+        let payload = br#"{"type":"file_end","file_id":"00000000-0000-4000-8000-000000000001"}"#;
         let mut bytes = (payload.len() as u32).to_le_bytes().to_vec();
         bytes.extend_from_slice(payload);
         let mut cursor = Cursor::new(bytes);
@@ -141,17 +174,50 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unknown_provider() {
-        let input = BrowserObservation {
-            provider: "Unknown".into(),
-            provider_domain: "example.com".into(),
-            event_type: "attachment_selected".into(),
-            file: ObservedFile {
-                name: "report.pdf".into(),
-                mime_type: "application/pdf".into(),
-                size_bytes: 10,
-            },
-        };
-        assert!(input.validate().is_err());
+    fn validates_supported_file_start() {
+        assert!(validate_file_start(
+            "00000000-0000-4000-8000-000000000001",
+            "chatgpt.com",
+            "report.pdf",
+            "application/pdf",
+            10,
+            1,
+        ).is_ok());
+    }
+
+    #[test]
+    fn rejects_path_like_file_name() {
+        assert!(validate_file_start(
+            "00000000-0000-4000-8000-000000000001",
+            "chatgpt.com",
+            "../secret.pdf",
+            "application/pdf",
+            10,
+            1,
+        ).is_err());
+    }
+
+    #[test]
+    fn rejects_unsupported_provider() {
+        assert!(validate_file_start(
+            "00000000-0000-4000-8000-000000000001",
+            "example.com",
+            "report.pdf",
+            "application/pdf",
+            10,
+            1,
+        ).is_err());
+    }
+
+    #[test]
+    fn rejects_wrong_chunk_count() {
+        assert!(validate_file_start(
+            "00000000-0000-4000-8000-000000000001",
+            "chatgpt.com",
+            "report.pdf",
+            "application/pdf",
+            10,
+            0,
+        ).is_err());
     }
 }

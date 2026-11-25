@@ -1,19 +1,31 @@
 # Rust Endpoint Agent
 
-The Rust agent is a cross-platform Native Messaging host. It validates attachment metadata, enriches it with device and local OS-account context, writes a local NDJSON metadata spool, and optionally forwards events to the Go control plane.
+Version 0.3 adds local file-inspection streaming through Native Messaging.
 
-Build and test with cargo test and cargo build --release.
+## Build
 
-Configure the exact browser extension origin in AEGIS_EXTENSION_ORIGINS as a comma-separated list. AEGIS_ALLOW_UNVERIFIED_ORIGIN=1 bypasses the origin check for local protocol testing only; never use that bypass in a managed deployment.
+    cargo test
+    cargo build --release
 
-The host uses Native Messaging framing: 4-byte little-endian length followed by UTF-8 JSON, with a 1 MiB maximum frame.
+## Runtime configuration
 
-Environment:
-- AEGIS_EXTENSION_ORIGINS
-- AEGIS_CONTROL_PLANE_URL
-- AEGIS_AGENT_TOKEN
-- AEGIS_ALLOW_UNVERIFIED_ORIGIN (development only)
+- AEGIS_EXTENSION_ORIGINS: exact browser extension origin allowlist (comma-separated).
+- AEGIS_CONTROL_PLANE_URL: optional Go control-plane base URL.
+- AEGIS_AGENT_TOKEN: agent event-ingestion token.
+- AEGIS_PYTHON: Python executable; defaults to python on Windows and python3 elsewhere.
+- AEGIS_ENGINE_PATH: path to the repository engine directory. Defaults to an engine directory beside the agent executable.
+- AEGIS_ALLOW_UNVERIFIED_ORIGIN=1: development-only origin bypass. Never use in managed deployments.
 
-The local spool is under the OS local application-data directory in AegisAI/events/events.ndjson. On Unix, newly created files use mode 0600.
+Install the local inspector once:
 
-The agent records the OS username as local_os_account, not as a verified enterprise identity. It does not read file bytes, inspect content, block uploads, or claim prevention. Local spool retry and retention controls remain future work.
+    python -m pip install -e ./engine
+
+For PDF/DOCX/XLSX support:
+
+    python -m pip install -e ".[documents]" --no-deps
+
+The agent streams selected-file bytes into the Python process stdin. It does not create a temporary copy of the selected file. File-size limit is 10 MiB; Native Messaging transfers use ordered 256 KiB chunks. Raw content is never placed in the event, local event spool, or control-plane request.
+
+The agent reports inspection categories and risk metadata. It never reports matched text, passwords, keys, or PII values. Unsupported or failed inspections are marked failed/unknown, not clean.
+
+The agent does not block network uploads in this milestone. Selection-triggered scanning is detection, not enforcement. A future policy/enforcement component must be implemented and independently confirm blocking before any event can be marked prevented.
