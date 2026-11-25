@@ -9,8 +9,9 @@ function sizeLabel(bytes: number) {
   return (bytes / (1024 * 1024)).toFixed(1) + " MB";
 }
 function actorLabel(event: SecurityEvent) {
-  if (event.actor.user_id) return event.actor.username + " · verified ID";
-  if (event.actor.identity_source === "local_os_account") return event.actor.username + " · OS account";
+  if (event.actor.identity_source === "enterprise_sso" && event.actor.user_id) return event.actor.username + " · verified enterprise identity";
+  if (event.actor.user_id) return event.actor.username + " · linked user ID";
+  if (event.actor.identity_source === "local_os_account") return event.actor.username + " · OS account (unverified)";
   return event.actor.username + " · unresolved";
 }
 export default function Home() {
@@ -36,7 +37,7 @@ export default function Home() {
   const stats = useMemo(() => ({
     observed: events.filter((event) => event.outcome === "observed").length,
     prevented: events.filter((event) => event.outcome === "prevented" && event.enforcement.confirmed).length,
-    risky: events.filter((event) => ["high", "critical"].includes(event.inspection.severity)).length,
+    risky: events.filter((event) => event.inspection.status === "completed" && ["high", "critical"].includes(event.inspection.severity)).length,
     users: new Set(events.map((event) => event.actor.username)).size
   }), [events]);
 
@@ -49,7 +50,7 @@ export default function Home() {
     </aside>
     <section className="content">
       <header className="topbar">
-        <div><p className="eyebrow">MONITORING / AI DATA EXPOSURE</p><h1>Security overview</h1><p className="subhead">See what employees attempt to share with external AI services.</p></div>
+        <div><p className="eyebrow">MONITORING / AI DATA EXPOSURE</p><h1>Security overview</h1><p className="subhead">See which endpoint accounts select files on supported external AI services.</p></div>
         <div className={"connection " + (status === "Connected" ? "online" : "offline")}><i />{status}</div>
       </header>
       <div className="notice"><strong>Observation mode</strong><span>Attachment selection is not proof of a completed upload. An event is shown as prevented only when an enforcement component confirms it.</span></div>
@@ -70,7 +71,7 @@ export default function Home() {
             <td><div className="fileName">{event.file.name}</div><small>{event.file.extension || "file"} · {sizeLabel(event.file.size_bytes)}</small></td>
             <td><div>{actorLabel(event)}</div><small>{event.device.hostname}</small></td>
             <td><span className="provider">{event.provider}</span><small>{event.provider_domain}</small></td>
-            <td><span className={"pill " + (event.outcome === "prevented" ? "red" : "amber")}>{event.outcome === "prevented" ? "Prevented" : "Observed"}</span><small>{event.event_type.replaceAll("_", " ")}</small></td>
+            <td><span className={"pill " + (event.outcome === "prevented" ? "red" : "amber")}>{event.outcome === "prevented" ? "Prevented" : "Observed"}</span><small>{event.event_type.replace(/_/g, " ")}</small></td>
             <td><span className="risk">{event.inspection.risk_score}/100</span><small>{event.inspection.severity}</small></td>
             <td><span className="time">{new Date(event.occurred_at).toLocaleString()}</span></td>
           </tr>)}
