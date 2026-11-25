@@ -1,11 +1,9 @@
-"""Optional Gitleaks CLI adapter. Reports rule metadata only."""
+"""Optional Gitleaks CLI adapter. Reports metadata only and redacts secrets."""
 from __future__ import annotations
 
 import json
 import shutil
 import subprocess
-import tempfile
-from pathlib import Path
 
 from .engine import Finding
 
@@ -25,15 +23,27 @@ class GitleaksDetector:
     def detect(self, text: str) -> list[Finding]:
         if not self.executable:
             raise RuntimeError("Gitleaks executable is unavailable")
-        with tempfile.TemporaryDirectory(prefix="aegis-gitleaks-") as directory:
-            report_path = Path(directory) / "report.json"
-            command = [self.executable, "stdin", "--report-format", "json", "--report-path", str(report_path)]
-            try:
-                subprocess.run(command, input=text, text=True, capture_output=True,
-                    timeout=self.timeout_seconds, check=False, cwd=directory)
-                report = json.loads(report_path.read_text(encoding="utf-8"))
-            except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError) as exc:
-                raise RuntimeError("Gitleaks scan failed") from exc
+        command = [
+            self.executable, "stdin",
+            "--report-format", "json",
+            "--report-path", "-",
+            "--redact=100",
+            "--no-banner",
+            "--log-level", "error",
+            "--timeout", str(self.timeout_seconds),
+        ]
+        try:
+            completed = subprocess.run(
+                command,
+                input=text,
+                text=True,
+                capture_output=True,
+                timeout=self.timeout_seconds + 2,
+                check=False,
+            )
+            report = json.loads(completed.stdout or "[]")
+        except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError) as exc:
+            raise RuntimeError("Gitleaks scan failed") from exc
 
         if not isinstance(report, list):
             raise RuntimeError("unexpected Gitleaks report format")
@@ -53,4 +63,6 @@ class GitleaksDetector:
             end = start + (len(lines[line - 1]) if lines and line <= len(lines) else 0)
             rule_id = str(item.get("RuleID") or "gitleaks-finding")[:128]
             findings.append(Finding(rule_id, "secret", "critical", start, end, .99, self.name))
+        if completed.returncode not in (0, 1):
+            raise RuntimeError("Gitleaks returned an execution error")
         return findings
