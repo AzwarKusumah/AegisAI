@@ -44,13 +44,9 @@ struct ScanOutput {
     #[serde(default)]
     risk_score: u8,
     #[serde(default)]
-    findings: Vec<ScanFinding>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ScanFinding {
-    category: String,
     severity: String,
+    #[serde(default)]
+    categories: Vec<String>,
 }
 
 fn allowed_origin(args: &[String]) -> bool {
@@ -166,29 +162,16 @@ fn scan_local_file(filename: &str, bytes: &[u8]) -> Result<Inspection> {
     let report: ScanOutput = serde_json::from_slice(&output.stdout)
         .context("local inspector returned invalid report")?;
 
-    let mut categories = report
-        .findings
-        .iter()
-        .map(|item| item.category.trim().to_owned())
-        .filter(|item| !item.is_empty())
-        .collect::<Vec<_>>();
+    let mut categories = report.categories;
+    categories.retain(|item| !item.trim().is_empty() && item.len() <= 64);
     categories.sort();
     categories.dedup();
     categories.truncate(MAX_FINDING_CATEGORIES);
 
-    let severity = report
-        .findings
-        .iter()
-        .map(|item| item.severity.as_str())
-        .max_by_key(|severity| match *severity {
-            "critical" => 5,
-            "high" => 4,
-            "medium" => 3,
-            "low" => 2,
-            _ => 1,
-        })
-        .unwrap_or("none")
-        .to_owned();
+    let severity = match report.severity.as_str() {
+        "low" | "medium" | "high" | "critical" => report.severity,
+        _ => "none".into(),
+    };
 
     Ok(Inspection {
         status: if report.complete {
