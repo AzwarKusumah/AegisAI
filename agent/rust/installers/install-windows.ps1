@@ -44,7 +44,6 @@ if ($Browser -eq "firefox") {
     # the manifest path followed by the add-on ID to the native host.
     $manifest.allowed_extensions = @("aegisai@example.invalid")
     $registryPath = "HKCU:\Software\Mozilla\NativeMessagingHosts\com.aegisai.agent"
-    [Environment]::SetEnvironmentVariable("AEGIS_FIREFOX_NATIVE_HOST", "1", "User")
     [Environment]::SetEnvironmentVariable("AEGIS_EXTENSION_ORIGINS", $null, "User")
 }
 else {
@@ -56,7 +55,6 @@ else {
         $registryPath = "HKCU:\Software\Microsoft\Edge\NativeMessagingHosts\com.aegisai.agent"
     }
     [Environment]::SetEnvironmentVariable("AEGIS_EXTENSION_ORIGINS", "chrome-extension://$ExtensionId/", "User")
-    [Environment]::SetEnvironmentVariable("AEGIS_FIREFOX_NATIVE_HOST", $null, "User")
 }
 
 $json = $manifest | ConvertTo-Json -Depth 5
