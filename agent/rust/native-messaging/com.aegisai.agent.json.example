@@ -1,0 +1,7 @@
+{
+  "name": "com.aegisai.agent",
+  "description": "AegisAI Native Messaging Host",
+  "path": "/absolute/path/to/aegisai-agent",
+  "type": "stdio",
+  "allowed_origins": ["chrome-extension://REPLACE_WITH_EXTENSION_ID/"]
+}
