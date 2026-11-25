@@ -1,2 +1,3 @@
-from .engine import InspectionEngine, InspectionResult
-__all__ = ["InspectionEngine", "InspectionResult"]
+from .engine import InspectionEngine, InspectionResult, create_default_engine
+
+__all__ = ["InspectionEngine", "InspectionResult", "create_default_engine"]

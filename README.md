@@ -2,68 +2,60 @@
 
 **Protect your data before it reaches AI.**
 
-AegisAI is a self-hosted, privacy-first AI Data Loss Prevention (AI-DLP) platform. It is designed to inspect and prevent sensitive information from being shared with external AI services, while providing administrators with an audit trail of attempted and prevented disclosures.
+AegisAI is a self-hosted AI Data Loss Prevention platform. It aims to make sensitive-data exposure to external AI services visible and preventable through endpoint, browser, and centralized controls.
 
-> Status: early development / foundation. This repository is not production-ready and does not yet provide complete endpoint or browser enforcement.
+> Early development foundation. Browser integration observes attachment selection only. It does not inspect browser-selected file contents or block uploads. Do not deploy as a production security control.
 
 ## Platform
 
-- **Endpoint agent:** Rust (Windows and Linux)
-- **Browser extension:** TypeScript, WebExtensions API (Chromium and Firefox)
-- **Web dashboard:** React + TypeScript
-- **Control-plane API:** Go
-- **Detection engine:** Python, local-first
-- **Storage:** PostgreSQL
-- **Policy:** Open Policy Agent (OPA), planned
-- **Deployment:** Docker Compose for development; self-hosted deployment target
+| Component | Technology | Current responsibility |
+|---|---|---|
+| Endpoint agent | Rust | Native Messaging, device context, local metadata spool |
+| Browser extension | TypeScript / WebExtensions | Observe attachment selection on supported AI pages |
+| Control plane | Go | Authenticated event ingestion and audit queries |
+| Web dashboard | Next.js / React / TypeScript | View events, file metadata, provider, device, and actor attribution |
+| Detection engine | Python | Local text/file inspection, secrets, PII, optional Gitleaks |
+| Storage | PostgreSQL | Durable security-event metadata |
 
-## Security and privacy principles
+## Event visibility
 
-1. Inspect content locally wherever possible.
-2. Never store raw files, prompts, passwords, API keys, or extracted sensitive values in audit events.
-3. Record only necessary metadata: authenticated user, managed device, AI provider, file metadata, detector categories, policy result, timestamp, and correlation ID.
-4. Separate detection from enforcement. A detection result is not proof that an upload was blocked.
-5. Report an event as prevented only when an enforcement component confirms prevention. Otherwise use attempted, detected, or unknown.
-6. Do not silently fail open when an enforced inspection path is unavailable.
-7. Minimize employee monitoring and provide role-based access, retention controls, and auditable administrator access.
+The current extension reports attachment_selected when a file is selected in a supported AI page. It records file basename, extension, MIME type, size, provider, device, and the endpoint-observed OS account.
 
-## Monorepo layout
+This is not proof that the upload completed or that the file reached an AI provider. An event may only be labelled prevented when a trusted enforcement component positively confirms prevention.
 
-```text
-apps/
-  dashboard/             Web management and audit UI (planned)
-  extension/             Browser extension (planned)
-services/
-  control-plane/         Go API and identity/event services (planned)
-agent/
-  rust/                  Cross-platform Rust endpoint agent (planned)
-engine/
-  python/                Local content inspection engine (planned)
-contracts/
-  events/                Shared event schemas
-  api/                   API specifications
-deployments/
-  compose/               Self-hosted development stack
-docs/
-  architecture/          Architecture and data-flow decisions
-  security/              Threat model and privacy requirements
-```
+## Privacy and identity
 
-## Development status
+- Raw files, prompts, clipboard content, credentials, and matched PII values must never be sent to the control plane or stored in audit events.
+- File paths and full browser URLs are not collected.
+- The current actor is an OS account (local_os_account), not an enterprise-verified identity.
+- OIDC/SAML and managed-device identity mapping are future requirements.
+- Filenames can contain sensitive data; organizations need collection and retention controls before production use.
 
-| Component | Status |
-|---|---|
-| Repository architecture and contracts | Initial foundation |
-| Rust endpoint agent | Planned |
-| Browser extension | Planned |
-| Control-plane API | Planned |
-| Web dashboard | Planned |
-| Detection engine integration | Planned |
-| Event-based audit trail | Schema foundation |
-| Enforcement | Not implemented |
+## Repository layout
 
-See [docs/architecture/overview.md](docs/architecture/overview.md), [docs/security/audit-and-privacy.md](docs/security/audit-and-privacy.md), and [CONTRIBUTING.md](CONTRIBUTING.md).
+- agent/rust — Rust Native Messaging endpoint agent.
+- apps/extension — Chromium/Firefox browser extension.
+- apps/dashboard — Next.js audit dashboard.
+- services/control-plane — Go API backed by PostgreSQL.
+- contracts/events — shared JSON Schema.
+- engine — local Python inspection engine.
+- deployments/compose — local PostgreSQL dependency.
+- docs — architecture and security requirements.
 
-## License
+## Development
 
-Apache-2.0. See [LICENSE](LICENSE).
+Start PostgreSQL using:
+
+    docker compose -f deployments/compose/docker-compose.yml up -d
+
+Control plane requires DATABASE_URL, AEGIS_AGENT_TOKEN, and AEGIS_ADMIN_TOKEN. Dashboard requires server-side AEGIS_API_URL and AEGIS_ADMIN_TOKEN. Never expose these credentials through NEXT_PUBLIC variables or commit real secrets.
+
+See the component READMEs and docs before running the individual services.
+
+## Current limitations
+
+- Browser currently observes attachment selection only; it does not intercept or block upload requests.
+- Rust agent records metadata and forwards events; content inspection is not yet integrated into the agent.
+- OS username is not verified enterprise identity.
+- Control plane uses shared development bearer tokens; production requires per-agent identity, rotation, TLS/mTLS, and enterprise authentication.
+- No clipboard enforcement, TLS inspection, OS network filtering, policy distribution, or desktop-AI enforcement yet.
