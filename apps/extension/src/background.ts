@@ -1,34 +1,79 @@
 const NATIVE_HOST = "com.aegisai.agent";
-const ALLOWED = new Set(["chatgpt.com", "claude.ai", "gemini.google.com", "copilot.microsoft.com", "perplexity.ai", "grok.com"]);
+const ALLOWED = new Set([
+  "chatgpt.com",
+  "claude.ai",
+  "gemini.google.com",
+  "copilot.microsoft.com",
+  "perplexity.ai",
+  "grok.com"
+]);
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message?.type !== "AEGIS_ATTACHMENT_SELECTED") return;
-  let senderHost = "";
-  try { senderHost = new URL(sender.url ?? "").hostname.toLowerCase(); } catch { return; }
-  const domain = String(message.payload?.provider_domain ?? "");
-  if (!ALLOWED.has(domain) || !(senderHost === domain || senderHost.endsWith("." + domain))) {
-    sendResponse({ ok: false, error: "untrusted_sender" });
-    return;
-  }
-  const file = message.payload?.file;
-  if (!file || typeof file.name !== "string" || !Number.isSafeInteger(file.size_bytes) || file.size_bytes < 0) {
-    sendResponse({ ok: false, error: "invalid_metadata" });
-    return;
-  }
+function hostAllowed(url: string): boolean {
   try {
-    const port = chrome.runtime.connectNative(NATIVE_HOST);
-    let responded = false;
-    port.onMessage.addListener((response) => {
-      responded = true;
-      sendResponse(response);
-      port.disconnect();
-    });
-    port.onDisconnect.addListener(() => {
-      if (!responded) sendResponse({ ok: false, error: "native_host_unavailable" });
-    });
-    port.postMessage(message.payload);
-    return true;
+    const host = new URL(url).hostname.toLowerCase();
+    return [...ALLOWED].some((domain) => host === domain || host.endsWith("." + domain));
   } catch {
-    sendResponse({ ok: false, error: "native_host_unavailable" });
+    return false;
   }
+}
+
+chrome.runtime.onConnect.addListener((contentPort) => {
+  if (contentPort.name !== "aegisai-inspection") return;
+
+  const senderUrl = contentPort.sender?.url ?? "";
+  if (!hostAllowed(senderUrl)) {
+    contentPort.disconnect();
+    return;
+  }
+
+  let nativePort: chrome.runtime.Port;
+  try {
+    nativePort = chrome.runtime.connectNative(NATIVE_HOST);
+  } catch {
+    contentPort.postMessage({ type: "error", code: "native_host_unavailable" });
+    contentPort.disconnect();
+    return;
+  }
+
+  let disconnected = false;
+  const disconnectBoth = () => {
+    if (disconnected) return;
+    disconnected = true;
+    try { nativePort.disconnect(); } catch { /* already closed */ }
+    try { contentPort.disconnect(); } catch { /* already closed */ }
+  };
+
+  contentPort.onMessage.addListener((message) => {
+    const type = message?.type;
+    if (type !== "file_start" && type !== "file_chunk" && type !== "file_end") {
+      contentPort.postMessage({ type: "error", code: "unsupported_message" });
+      disconnectBoth();
+      return;
+    }
+    try {
+      nativePort.postMessage(message);
+    } catch {
+      contentPort.postMessage({ type: "error", code: "native_host_unavailable" });
+      disconnectBoth();
+    }
+  });
+
+  nativePort.onMessage.addListener((message) => {
+    try {
+      contentPort.postMessage(message);
+    } catch {
+      disconnectBoth();
+    }
+  });
+
+  nativePort.onDisconnect.addListener(() => {
+    if (!disconnected) {
+      try {
+        contentPort.postMessage({ type: "error", code: "native_host_disconnected" });
+      } catch { /* content port is already closed */ }
+      disconnectBoth();
+    }
+  });
+
+  contentPort.onDisconnect.addListener(disconnectBoth);
 });

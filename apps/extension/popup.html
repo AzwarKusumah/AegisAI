@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AegisAI Protection</title>
+  <style>
+    :root{color-scheme:dark;font-family:Inter,system-ui,sans-serif;background:#0b1020;color:#edf3fb}
+    body{width:300px;margin:0;padding:18px;box-sizing:border-box}
+    h1{font-size:16px;margin:0 0 5px}
+    p{font-size:11px;line-height:1.55;color:#aab8cb;margin:8px 0}
+    .brand{display:flex;align-items:center;gap:9px;margin-bottom:18px}
+    .mark{width:30px;height:30px;border-radius:8px;background:#164e63;color:#a5f3fc;display:grid;place-items:center;font-weight:800}
+    .state{display:flex;justify-content:space-between;align-items:center;border:1px solid #263650;background:#111a2d;padding:12px;border-radius:9px;margin:14px 0}
+    label{font-size:12px;font-weight:650}
+    input{accent-color:#5eead4;width:18px;height:18px}
+    .notice{border-left:2px solid #d6a84d;padding-left:10px}
+    .status{font-size:10px;color:#5eead4;margin-top:12px;min-height:14px}
+    .foot{border-top:1px solid #263650;margin-top:15px;padding-top:11px;font-size:9px;color:#788ba5}
+  </style>
+</head>
+<body>
+  <div class="brand"><div class="mark">A</div><div><h1>AegisAI Protection</h1><p>Local AI data inspection</p></div></div>
+  <div class="state">
+    <label for="enabled">Inspect selected AI attachments</label>
+    <input id="enabled" type="checkbox">
+  </div>
+  <p class="notice">When enabled, AegisAI reads selected file bytes and scans them locally on this device. The raw file and matched text are not sent to the AegisAI server.</p>
+  <p>Only event metadata, risk score, and finding categories are sent to your configured control plane. Uploads are not blocked by this version.</p>
+  <div id="status" class="status" role="status"></div>
+  <div class="foot">Inspection is off by default. You can disable it here at any time.</div>
+  <script src="popup.js"></script>
+</body>
+</html>
