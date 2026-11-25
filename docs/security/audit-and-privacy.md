@@ -24,7 +24,11 @@ The current file-size limit is 10 MiB. The agent buffers one selected file at a 
 - full local file paths;
 - browser cookies, authorization headers, or AI-provider session tokens.
 
-File contents are transferred only to the local Native Messaging host after the user enables inspection. The control plane receives metadata only. Filenames can themselves be sensitive; organizations should provide configurable collection, access control, and retention before production deployment.
+File contents are transferred only to the local Native Messaging host after the user enables inspection. The control plane receives metadata only. The Rust buffer is zeroized after local inspection and before event persistence/forwarding. The local Python process has a 30-second execution timeout. Optional Gitleaks reports are requested on stdout with 100% redaction; the engine stores only compact finding summaries. Filenames can themselves be sensitive; organizations should provide configurable collection, access control, and retention before production deployment.
+
+## Dashboard access
+
+The Next.js dashboard and its API routes require HTTP Basic Authentication using server-side AEGIS_DASHBOARD_USER and AEGIS_DASHBOARD_PASSWORD values. Deploy behind HTTPS whenever reachable over a network. The Go control-plane admin token remains server-side and is never sent to browser JavaScript. Basic Authentication is an initial access gate, not a substitute for enterprise SSO, per-user RBAC, MFA, or audited administrator sessions.
 
 ## Event semantics
 
