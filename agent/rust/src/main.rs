@@ -220,7 +220,7 @@ fn build_event(file: &PendingFile, inspection: Inspection) -> Result<SecurityEve
             os: os_name().into(),
         },
         provider: provider.into(),
-        provider_domain: file.provider_domain,
+        provider_domain: file.provider_domain.clone(),
         event_type: if inspection.status == "completed" {
             "inspection_completed".into()
         } else {
@@ -306,13 +306,20 @@ fn handle_message(message: AgentMessage, pending: &mut Option<PendingFile>) -> R
             index,
             mut data_base64,
         } => {
-            let transfer = pending.as_mut().ok_or_else(|| anyhow!("no active file transfer"))?;
-            if transfer.file_id != file_id || index != transfer.next_chunk {
-                return Err(anyhow!("file chunk sequence mismatch"));
-            }
             let decoded_result = STANDARD.decode(data_base64.as_bytes());
             data_base64.zeroize();
             let mut decoded = decoded_result.context("invalid file chunk encoding")?;
+            let transfer = match pending.as_mut() {
+                Some(value) => value,
+                None => {
+                    decoded.zeroize();
+                    return Err(anyhow!("no active file transfer"));
+                }
+            };
+            if transfer.file_id != file_id || index != transfer.next_chunk {
+                decoded.zeroize();
+                return Err(anyhow!("file chunk sequence mismatch"));
+            }
             let remaining = transfer.size_bytes as usize - transfer.bytes.len();
             let expected = remaining.min(CHUNK_SIZE);
             if decoded.len() != expected {
@@ -366,7 +373,7 @@ fn run() -> Result<()> {
     let mut pending: Option<PendingFile> = None;
 
     loop {
-        let frame = match read_message(&mut reader, MAX_MESSAGE_BYTES)? {
+        let mut frame = match read_message(&mut reader, MAX_MESSAGE_BYTES)? {
             Some(value) => value,
             None => break,
         };
