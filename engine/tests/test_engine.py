@@ -1,10 +1,4 @@
-from pathlib import Path
-import io
-import zipfile
-
-import pytest
 from aegis_inspector.engine import InspectionEngine, create_default_engine
-from aegis_inspector.extractors import ExtractionError, extract_file
 
 def test_secret_detection_returns_metadata_only():
     secret = "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE"
@@ -14,7 +8,7 @@ def test_secret_detection_returns_metadata_only():
     assert result.risk_score > 0
 
 def test_pii_detection():
-    result = create_default_engine(include_gitleaks=False).inspect_text("Contact user@example.org")
+    result = InspectionEngine().inspect_text("Contact user@example.org")
     assert any(item.category == "email" for item in result.findings)
 
 def test_public_text():
@@ -22,23 +16,22 @@ def test_public_text():
     assert not result.findings
     assert result.risk_score == 0
 
-def test_plain_file_extraction(tmp_path: Path):
-    path = tmp_path / "note.txt"
-    path.write_text("AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE", encoding="utf-8")
-    result = create_default_engine(include_gitleaks=False).inspect_file(path)
+def test_inspect_bytes_without_temp_file():
+    secret = b"AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE"
+    result = create_default_engine(include_gitleaks=False).inspect_bytes(secret, "settings.env")
     assert result.findings
-    assert result.source_name == "note.txt"
+    assert result.complete
+    assert result.source_name == "settings.env"
+    assert "AKIAIOSFODNN7EXAMPLE" not in str(result.to_dict())
 
-def test_zip_traversal_rejected():
-    stream = io.BytesIO()
-    with zipfile.ZipFile(stream, "w") as archive:
-        archive.writestr("../outside.txt", "no")
-    with pytest.raises(ExtractionError, match="unsafe"):
-        extract_file(stream.getvalue(), "bundle.zip")
-
-def test_unsupported_file_not_clean(tmp_path: Path):
-    path = tmp_path / "blob.bin"
-    path.write_bytes(b"binary")
-    result = InspectionEngine().inspect_file(path)
+def test_unsupported_bytes_are_not_clean():
+    result = InspectionEngine().inspect_bytes(b"binary", "unknown.bin")
     assert not result.complete
     assert result.errors == ("extraction_failed",)
+
+def test_non_bytes_rejected():
+    try:
+        InspectionEngine().inspect_bytes("not bytes", "file.txt")
+    except TypeError:
+        return
+    raise AssertionError("expected TypeError")

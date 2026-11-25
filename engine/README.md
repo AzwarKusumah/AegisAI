@@ -5,12 +5,13 @@ Local-first inspection with a detector registry, built-in secret and PII detecti
 Install from this directory:
 
     python -m pip install -e ".[dev]"
-    python -m pytest -q
 
-PDF/DOCX/XLSX extraction dependencies are included in the dev extra and may also be installed with the documents extra.
+For PDF/DOCX/XLSX extraction, install the documents extra:
 
-Gitleaks is optional and activates when its executable is available on PATH. Findings contain rule IDs, categories, severity, confidence, and offsets only; matched values are never returned.
+    python -m pip install -e ".[documents]"
 
-Archive extraction is bounded, rejects traversal, symbolic links, and nested ZIPs, and never writes members to disk. Encrypted or image-only documents are not treated as clean. OCR is not part of this version.
+The Rust endpoint agent invokes the package as a local subprocess and streams file bytes to its stdin. No temporary file is required for the selected upload. Configure the agent with AEGIS_ENGINE_PATH pointing at this directory and AEGIS_PYTHON pointing at the Python executable.
 
-The engine is not yet wired into the Rust agent or browser upload flow.
+Gitleaks is optional and activates when its executable is on PATH. Findings contain rule IDs, categories, severity, confidence, document names, and offsets only; matched values are never returned. Unsupported, encrypted, image-only, oversized, or unreadable files are reported as incomplete rather than clean.
+
+The extension must be explicitly enabled by the local user before it reads selected file bytes. The content is sent only to the local Native Messaging host; the control plane receives metadata only.

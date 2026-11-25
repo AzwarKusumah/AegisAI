@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
-import shutil
 import re
+import shutil
 
 @dataclass(frozen=True, slots=True)
 class Finding:
@@ -37,11 +37,13 @@ class InspectionResult:
 class DetectorRegistry:
     def __init__(self):
         self._items = {}
+
     def register(self, detector):
         name = getattr(detector, "name", "")
         if not name or name in self._items or not callable(getattr(detector, "detect", None)):
             raise ValueError("invalid or duplicate detector")
         self._items[name] = detector
+
     def all(self):
         return tuple(self._items[key] for key in sorted(self._items))
 
@@ -53,10 +55,13 @@ class SecretDetector:
         ("github-token", "source_control_credential", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}\b"), "critical", .99),
         ("credential-assignment", "credential", re.compile(r"(?im)\b[A-Za-z0-9_]*(?:password|passwd|pwd|api[_-]?key|secret[_-]?key|access[_-]?token)\s*[:=]\s*[^\s;]{8,}"), "high", .90),
     ]
+
     def detect(self, text):
-        return [Finding(rule, category, severity, match.start(), match.end(), confidence, self.name)
-                for rule, category, pattern, severity, confidence in self.RULES
-                for match in pattern.finditer(text)]
+        return [
+            Finding(rule, category, severity, match.start(), match.end(), confidence, self.name)
+            for rule, category, pattern, severity, confidence in self.RULES
+            for match in pattern.finditer(text)
+        ]
 
 class PIIDetector:
     name = "builtin-pii"
@@ -65,15 +70,18 @@ class PIIDetector:
         ("indonesian-phone", "phone", re.compile(r"(?<!\w)(?:\+62|62|0)8[1-9][0-9]{7,11}(?!\w)"), "medium", .90),
         ("indonesian-nik-candidate", "national_identifier", re.compile(r"(?<!\d)\d{16}(?!\d)"), "high", .70),
     ]
+
     def detect(self, text):
-        return [Finding(rule, category, severity, match.start(), match.end(), confidence, self.name)
-                for rule, category, pattern, severity, confidence in self.RULES
-                for match in pattern.finditer(text)]
+        return [
+            Finding(rule, category, severity, match.start(), match.end(), confidence, self.name)
+            for rule, category, pattern, severity, confidence in self.RULES
+            for match in pattern.finditer(text)
+        ]
 
 def score_findings(findings):
-    weights = {"low":20, "medium":40, "high":70, "critical":100}
+    weights = {"low": 20, "medium": 40, "high": 70, "critical": 100}
     scores = [round(weights[item.severity] * max(0.0, min(1.0, item.confidence))) for item in findings]
-    return min(100, max(scores, default=0) + min(15, max(0, len(findings)-1)*5))
+    return min(100, max(scores, default=0) + min(15, max(0, len(findings) - 1) * 5))
 
 class InspectionEngine:
     def __init__(self, registry=None):
@@ -94,22 +102,34 @@ class InspectionEngine:
         findings.sort(key=lambda item: (item.start, item.end, item.rule_id, item.detector))
         return InspectionResult(tuple(findings), score_findings(findings), not errors, tuple(errors), source_name)
 
-    def inspect_file(self, path: str | Path) -> InspectionResult:
+    def inspect_bytes(self, data: bytes, filename: str) -> InspectionResult:
         from .extractors import ExtractionError, MAX_FILE_BYTES, extract_file
-        file_path = Path(path)
+        if not isinstance(data, bytes):
+            raise TypeError("data must be bytes")
         try:
-            if file_path.stat().st_size > MAX_FILE_BYTES:
+            if len(data) > MAX_FILE_BYTES:
                 raise ExtractionError("file exceeds maximum size")
-            documents = extract_file(file_path.read_bytes(), file_path.name)
-        except (OSError, ExtractionError, ValueError, TypeError):
-            return InspectionResult((), 0, False, ("extraction_failed",), file_path.name)
+            documents = extract_file(data, filename)
+        except (ExtractionError, ValueError, TypeError):
+            return InspectionResult((), 0, False, ("extraction_failed",), filename)
+
         findings, errors = [], []
         for document_name, text in documents:
             result = self.inspect_text(text, document_name)
             findings.extend(result.findings)
             errors.extend(result.errors)
         findings.sort(key=lambda item: (item.start, item.end, item.rule_id, item.detector))
-        return InspectionResult(tuple(findings), score_findings(findings), not errors, tuple(errors), file_path.name)
+        return InspectionResult(tuple(findings), score_findings(findings), not errors, tuple(errors), filename)
+
+    def inspect_file(self, path: str | Path) -> InspectionResult:
+        file_path = Path(path)
+        try:
+            from .extractors import MAX_FILE_BYTES
+            if file_path.stat().st_size > MAX_FILE_BYTES:
+                return InspectionResult((), 0, False, ("file_too_large",), file_path.name)
+            return self.inspect_bytes(file_path.read_bytes(), file_path.name)
+        except OSError:
+            return InspectionResult((), 0, False, ("file_unavailable",), file_path.name)
 
 def create_default_engine(include_gitleaks: bool = True) -> InspectionEngine:
     registry = DetectorRegistry()
