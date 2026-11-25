@@ -15,6 +15,7 @@ use std::io::{stdin, stdout, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use uuid::Uuid;
+use zeroize::Zeroize;
 
 const MAX_MESSAGE_BYTES: usize = 512 * 1024;
 const MAX_FINDING_CATEGORIES: usize = 50;
@@ -28,6 +29,12 @@ struct PendingFile {
     total_chunks: usize,
     next_chunk: usize,
     bytes: Vec<u8>,
+}
+
+impl Drop for PendingFile {
+    fn drop(&mut self) {
+        self.bytes.zeroize();
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -170,7 +177,7 @@ fn scan_local_file(filename: &str, bytes: &[u8]) -> Result<Inspection> {
     })
 }
 
-fn build_event(file: PendingFile, inspection: Inspection) -> Result<SecurityEvent> {
+fn build_event(file: &PendingFile, inspection: Inspection) -> Result<SecurityEvent> {
     let hostname = hostname::get()?.to_string_lossy().to_string();
     let username = whoami::username();
     let extension = PathBuf::from(&file.file_name)
@@ -204,9 +211,9 @@ fn build_event(file: PendingFile, inspection: Inspection) -> Result<SecurityEven
             "unknown".into()
         },
         file: protocol::FileMetadata {
-            name: file.file_name,
+            name: file.file_name.clone(),
             extension,
-            mime_type: file.mime_type,
+            mime_type: file.mime_type.clone(),
             size_bytes: file.size_bytes,
         },
         inspection,
@@ -281,20 +288,22 @@ fn handle_message(message: AgentMessage, pending: &mut Option<PendingFile>) -> R
         AgentMessage::FileChunk {
             file_id,
             index,
-            data_base64,
+            mut data_base64,
         } => {
             let transfer = pending.as_mut().ok_or_else(|| anyhow!("no active file transfer"))?;
             if transfer.file_id != file_id || index != transfer.next_chunk {
                 return Err(anyhow!("file chunk sequence mismatch"));
             }
-            let decoded = STANDARD.decode(data_base64.as_bytes())
-                .context("invalid file chunk encoding")?;
+            let decoded_result = STANDARD.decode(data_base64.as_bytes());
+            data_base64.zeroize();
+            let mut decoded = decoded_result.context("invalid file chunk encoding")?;
             let remaining = transfer.size_bytes as usize - transfer.bytes.len();
             let expected = remaining.min(CHUNK_SIZE);
             if decoded.len() != expected {
                 return Err(anyhow!("file chunk size mismatch"));
             }
             transfer.bytes.extend_from_slice(&decoded);
+            decoded.zeroize();
             transfer.next_chunk += 1;
             Ok(json!({"type":"ack","stage":"chunk_received","index":index}))
         }
@@ -311,7 +320,7 @@ fn handle_message(message: AgentMessage, pending: &mut Option<PendingFile>) -> R
                 Ok(value) => value,
                 Err(_) => failed_inspection(),
             };
-            let event = build_event(transfer, inspection)?;
+            let event = build_event(&transfer, inspection)?;
             let event_json = serde_json::to_value(&event)?;
             spool::append(&event_json)?;
             let remote_delivery = forward_event(&event);
