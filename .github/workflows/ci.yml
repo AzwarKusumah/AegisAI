@@ -2,6 +2,7 @@ name: CI
 on:
   push:
   pull_request:
+
 jobs:
   rust-agent:
     runs-on: ubuntu-latest
@@ -13,6 +14,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo fmt -- --check
       - run: cargo test
+
   control-plane:
     runs-on: ubuntu-latest
     defaults:
@@ -25,6 +27,20 @@ jobs:
           go-version: "1.23"
       - run: go mod tidy
       - run: go test ./...
+
+  detection-engine:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[dev,documents]"
+      - run: python -m pytest -q
+
   extension:
     runs-on: ubuntu-latest
     defaults:
@@ -38,6 +54,7 @@ jobs:
       - run: npm install
       - run: npm run typecheck
       - run: npm run build
+
   dashboard:
     runs-on: ubuntu-latest
     defaults:
