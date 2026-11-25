@@ -40,15 +40,21 @@ A selected attachment is not proof that a provider upload completed. This milest
 
 ## Development
 
-Install the local inspector:
+Install the local inspector from the repository root:
 
-    python -m pip install -e ".[dev]" --project-dir engine
+    python -m pip install -e ./engine
+
+For PDF/DOCX/XLSX extraction support, install the optional documents dependencies:
+
+    python -m pip install -e "./engine[documents]"
+
+On Windows, register the Native Messaging host using agent/rust/installers/install-windows.ps1. Use -Browser chrome or edge with -ExtensionId, or -Browser firefox.
 
 Run backend and dashboard using the component READMEs. Configure the Rust agent with:
 - AEGIS_PYTHON: local Python executable.
 - AEGIS_ENGINE_PATH: absolute path to the engine directory.
 - AEGIS_CONTROL_PLANE_URL and AEGIS_AGENT_TOKEN for remote metadata ingestion.
-- AEGIS_EXTENSION_ORIGINS with the installed extension origin.
+- AEGIS_EXTENSION_ORIGINS with the installed Chromium extension origin. Firefox uses its fixed add-on ID and registered host manifest.
 
 Start PostgreSQL:
 
