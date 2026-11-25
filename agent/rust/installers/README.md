@@ -23,7 +23,7 @@ The installer creates the browser-specific host manifest, adds the per-user regi
 
 For Chrome/Edge, find the unpacked extension ID at chrome://extensions or edge://extensions and pass it exactly. Firefox uses the fixed add-on ID aegisai@example.invalid in manifest.firefox.json; do not change one without changing the installer and host validation too.
 
-The Firefox native host manifest uses allowed_extensions. The Rust agent validates the add-on ID passed by Firefox and only accepts that launch mode when AEGIS_FIREFOX_NATIVE_HOST=1 is set by the installer. Chromium uses allowed_origins and the extension origin allowlist.
+The Firefox native host manifest uses allowed_extensions. The Rust agent validates the add-on ID passed by Firefox and checks that the supplied host-manifest path resolves to the registered per-user AegisAI manifest. Chromium uses allowed_origins and the exact extension-origin allowlist.
 
 ## Manual configuration
 
