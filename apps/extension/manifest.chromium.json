@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "AegisAI Protection",
+  "version": "0.2.0",
+  "description": "Observe AI attachment selections and send metadata to the local AegisAI agent.",
+  "permissions": ["nativeMessaging"],
+  "host_permissions": [
+    "https://chatgpt.com/*", "https://claude.ai/*", "https://gemini.google.com/*",
+    "https://copilot.microsoft.com/*", "https://perplexity.ai/*", "https://grok.com/*"
+  ],
+  "background": { "service_worker": "dist/background.js" },
+  "content_scripts": [{
+    "matches": [
+      "https://chatgpt.com/*", "https://claude.ai/*", "https://gemini.google.com/*",
+      "https://copilot.microsoft.com/*", "https://perplexity.ai/*", "https://grok.com/*"
+    ],
+    "js": ["dist/content.js"], "run_at": "document_start"
+  }]
+}
