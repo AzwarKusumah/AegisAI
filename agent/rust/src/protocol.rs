@@ -208,7 +208,8 @@ mod tests {
             "application/pdf",
             10,
             1,
-        ).is_err());
+        )
+        .is_err());
     }
 
     #[test]
