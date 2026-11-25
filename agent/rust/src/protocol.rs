@@ -221,6 +221,7 @@ mod tests {
             "application/pdf",
             10,
             0,
-        ).is_err());
+        )
+        .is_err());
     }
 }
