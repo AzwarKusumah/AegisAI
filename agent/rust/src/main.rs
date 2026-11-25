@@ -66,10 +66,18 @@ fn allowed_origin(args: &[String]) -> bool {
                 .any(|item| !item.is_empty() && item == origin);
         }
     }
-    let firefox_enabled = std::env::var("AEGIS_FIREFOX_NATIVE_HOST").as_deref() == Ok("1");
-    firefox_enabled
-        && args.get(1).map(String::as_str) == Some("aegisai@example.invalid")
-        && args.first().map(|path| path.ends_with("com.aegisai.agent.json")).unwrap_or(false)
+    let firefox_id_matches = args.get(1).map(String::as_str) == Some("aegisai@example.invalid");
+    let expected_manifest = dirs::data_local_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("AegisAI")
+        .join("com.aegisai.agent.json");
+    let manifest_matches = args
+        .first()
+        .and_then(|path| PathBuf::from(path).canonicalize().ok())
+        .zip(expected_manifest.canonicalize().ok())
+        .map(|(provided, expected)| provided == expected)
+        .unwrap_or(false);
+    firefox_id_matches && manifest_matches
 }
 
 fn device_id() -> Result<String> {
