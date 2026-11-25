@@ -300,6 +300,7 @@ fn handle_message(message: AgentMessage, pending: &mut Option<PendingFile>) -> R
             let remaining = transfer.size_bytes as usize - transfer.bytes.len();
             let expected = remaining.min(CHUNK_SIZE);
             if decoded.len() != expected {
+                decoded.zeroize();
                 return Err(anyhow!("file chunk size mismatch"));
             }
             transfer.bytes.extend_from_slice(&decoded);
@@ -368,6 +369,7 @@ fn run() -> Result<()> {
                 json!({"type":"error","code":"inspection_message_rejected"})
             }
         };
+        frame.zeroize();
         write_message(&mut writer, &response)?;
     }
     Ok(())
