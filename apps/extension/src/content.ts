@@ -85,12 +85,13 @@ if (provider) {
     const target = event.target;
     if (!(target instanceof HTMLInputElement) || target.type !== "file" || !target.files) return;
 
+    const selectedFiles = Array.from(target.files);
     // Reading file content is explicitly opt-in through the extension popup.
     chrome.storage.local.get({ inspectionEnabled: false }, (settings) => {
       if (!settings.inspectionEnabled) return;
 
       void (async () => {
-        for (const file of Array.from(target.files).slice(0, 5)) {
+        for (const file of selectedFiles.slice(0, 5)) {
           if (file.size > MAX_FILE_BYTES) {
             console.warn("[AegisAI] File skipped: local inspection limit is 10 MiB.");
             continue;
