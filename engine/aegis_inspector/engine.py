@@ -26,9 +26,18 @@ class InspectionResult:
     source_name: str | None = None
 
     def to_dict(self):
+        severity_rank = {"none": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
+        severity = max(
+            (item.severity for item in self.findings),
+            key=lambda value: severity_rank.get(value, 0),
+            default="none",
+        )
+        categories = sorted({item.category for item in self.findings if item.category})
         return {
             "source_name": self.source_name,
-            "findings": [asdict(item) for item in self.findings],
+            "finding_count": len(self.findings),
+            "categories": categories[:50],
+            "severity": severity,
             "risk_score": self.risk_score,
             "complete": self.complete,
             "errors": list(self.errors),
