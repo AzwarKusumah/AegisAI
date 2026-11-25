@@ -15,6 +15,7 @@ use std::io::{stdin, stdout, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use uuid::Uuid;
+use wait_timeout::ChildExt;
 use zeroize::Zeroize;
 
 const MAX_MESSAGE_BYTES: usize = 512 * 1024;
@@ -140,8 +141,7 @@ fn scan_local_file(filename: &str, bytes: &[u8]) -> Result<Inspection> {
         .arg("-m")
         .arg("aegis_inspector.cli")
         .arg("--stdin-file")
-        .arg("--filename")
-        .arg(filename)
+        .arg(format!("--filename={filename}"))
         .current_dir(engine_path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -158,6 +158,15 @@ fn scan_local_file(filename: &str, bytes: &[u8]) -> Result<Inspection> {
         .context("could not stream file to local inspector")?;
     drop(child_stdin);
 
+    if child
+        .wait_timeout(std::time::Duration::from_secs(30))
+        .context("could not wait for local inspector")?
+        .is_none()
+    {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(anyhow!("local inspection timed out"));
+    }
     let output = child.wait_with_output().context("local inspector failed")?;
     let report: ScanOutput = serde_json::from_slice(&output.stdout)
         .context("local inspector returned invalid report")?;
@@ -343,6 +352,7 @@ fn handle_message(
                 Err(_) => failed_inspection(),
             };
             let event = build_event(&transfer, inspection)?;
+            drop(transfer);
             let event_json = serde_json::to_value(&event)?;
             spool::append(&event_json)?;
             let remote_delivery = forward_event(&event);
