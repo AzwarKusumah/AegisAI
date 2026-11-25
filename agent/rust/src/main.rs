@@ -153,8 +153,13 @@ fn scan_local_file(filename: &str, bytes: &[u8]) -> Result<Inspection> {
         .spawn()
         .context("local Python inspector could not start")?;
 
-    let mut child_stdin = child.stdin.take().ok_or_else(|| anyhow!("inspector stdin unavailable"))?;
-    child_stdin.write_all(bytes).context("could not stream file to local inspector")?;
+    let mut child_stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| anyhow!("inspector stdin unavailable"))?;
+    child_stdin
+        .write_all(bytes)
+        .context("could not stream file to local inspector")?;
     drop(child_stdin);
 
     let output = child.wait_with_output().context("local inspector failed")?;
@@ -186,7 +191,12 @@ fn scan_local_file(filename: &str, bytes: &[u8]) -> Result<Inspection> {
         .to_owned();
 
     Ok(Inspection {
-        status: if report.complete { "completed" } else { "failed" }.into(),
+        status: if report.complete {
+            "completed"
+        } else {
+            "failed"
+        }
+        .into(),
         risk_score: report.risk_score.min(100),
         severity,
         categories,
@@ -203,8 +213,8 @@ fn build_event(file: &PendingFile, inspection: Inspection) -> Result<SecurityEve
         .chars()
         .take(32)
         .collect();
-    let provider = provider_id(&file.provider_domain)
-        .ok_or_else(|| anyhow!("unsupported provider"))?;
+    let provider =
+        provider_id(&file.provider_domain).ok_or_else(|| anyhow!("unsupported provider"))?;
 
     Ok(SecurityEvent {
         event_id: Uuid::new_v4().to_string(),
@@ -268,7 +278,10 @@ fn forward_event(event: &SecurityEvent) -> &'static str {
     }
 }
 
-fn handle_message(message: AgentMessage, pending: &mut Option<PendingFile>) -> Result<serde_json::Value> {
+fn handle_message(
+    message: AgentMessage,
+    pending: &mut Option<PendingFile>,
+) -> Result<serde_json::Value> {
     match message {
         AgentMessage::FileStart {
             file_id,
@@ -332,7 +345,9 @@ fn handle_message(message: AgentMessage, pending: &mut Option<PendingFile>) -> R
             Ok(json!({"type":"ack","stage":"chunk_received","index":index}))
         }
         AgentMessage::FileEnd { file_id } => {
-            let transfer = pending.take().ok_or_else(|| anyhow!("no active file transfer"))?;
+            let transfer = pending
+                .take()
+                .ok_or_else(|| anyhow!("no active file transfer"))?;
             if transfer.file_id != file_id
                 || transfer.next_chunk != transfer.total_chunks
                 || transfer.bytes.len() as u64 != transfer.size_bytes
