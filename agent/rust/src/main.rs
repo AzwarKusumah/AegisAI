@@ -53,15 +53,23 @@ struct ScanFinding {
     severity: String,
 }
 
-fn allowed_origin(origin: &str) -> bool {
+fn allowed_origin(args: &[String]) -> bool {
     if std::env::var("AEGIS_ALLOW_UNVERIFIED_ORIGIN").as_deref() == Ok("1") {
         return true;
     }
-    let configured = std::env::var("AEGIS_EXTENSION_ORIGINS").unwrap_or_default();
-    configured
-        .split(',')
-        .map(str::trim)
-        .any(|item| !item.is_empty() && item == origin)
+    if let Some(origin) = args.first() {
+        if origin.starts_with("chrome-extension://") {
+            let configured = std::env::var("AEGIS_EXTENSION_ORIGINS").unwrap_or_default();
+            return configured
+                .split(',')
+                .map(str::trim)
+                .any(|item| !item.is_empty() && item == origin);
+        }
+    }
+    let firefox_enabled = std::env::var("AEGIS_FIREFOX_NATIVE_HOST").as_deref() == Ok("1");
+    firefox_enabled
+        && args.get(1).map(String::as_str) == Some("aegisai@example.invalid")
+        && args.first().map(|path| path.ends_with("com.aegisai.agent.json")).unwrap_or(false)
 }
 
 fn device_id() -> Result<String> {
@@ -338,8 +346,8 @@ fn handle_message(message: AgentMessage, pending: &mut Option<PendingFile>) -> R
 }
 
 fn run() -> Result<()> {
-    let origin = std::env::args().nth(1).unwrap_or_default();
-    if !allowed_origin(&origin) {
+    let host_args = std::env::args().skip(1).collect::<Vec<_>>();
+    if !allowed_origin(&host_args) {
         return Err(anyhow!("Native Messaging origin is not allowlisted"));
     }
 
