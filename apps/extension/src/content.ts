@@ -60,11 +60,13 @@ function inspectFile(file: File, providerDomain: string): Promise<void> {
           const start = index * CHUNK_BYTES;
           const end = Math.min(start + CHUNK_BYTES, file.size);
           const bytes = new Uint8Array(await file.slice(start, end).arrayBuffer());
+          const encoded = toBase64(bytes);
+          bytes.fill(0);
           port.postMessage({
             type: "file_chunk",
             file_id: fileId,
             index,
-            data_base64: toBase64(bytes)
+            data_base64: encoded
           });
         }
 
@@ -87,13 +89,15 @@ if (provider) {
     chrome.storage.local.get({ inspectionEnabled: false }, (settings) => {
       if (!settings.inspectionEnabled) return;
 
-      for (const file of Array.from(target.files).slice(0, 5)) {
-        if (file.size > MAX_FILE_BYTES) {
-          console.warn("[AegisAI] File skipped: local inspection limit is 10 MiB.");
-          continue;
+      void (async () => {
+        for (const file of Array.from(target.files).slice(0, 5)) {
+          if (file.size > MAX_FILE_BYTES) {
+            console.warn("[AegisAI] File skipped: local inspection limit is 10 MiB.");
+            continue;
+          }
+          await inspectFile(file, provider.domain);
         }
-        void inspectFile(file, provider.domain);
-      }
+      })();
     });
   }, true);
 }
