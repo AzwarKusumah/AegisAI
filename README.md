@@ -2,60 +2,66 @@
 
 **Protect your data before it reaches AI.**
 
-AegisAI is a self-hosted AI Data Loss Prevention platform. It aims to make sensitive-data exposure to external AI services visible and preventable through endpoint, browser, and centralized controls.
+AegisAI is a self-hosted AI Data Loss Prevention platform designed to inspect sensitive data locally and provide an audit trail of activity involving external AI services.
 
-> Early development foundation. Browser integration observes attachment selection only. It does not inspect browser-selected file contents or block uploads. Do not deploy as a production security control.
+> Early development. v0.3 can scan selected files locally and report detection metadata. It does not block uploads and must not be treated as a production DLP enforcement control.
 
 ## Platform
 
-| Component | Technology | Current responsibility |
+| Component | Technology | Responsibility |
 |---|---|---|
-| Endpoint agent | Rust | Native Messaging, device context, local metadata spool |
-| Browser extension | TypeScript / WebExtensions | Observe attachment selection on supported AI pages |
-| Control plane | Go | Authenticated event ingestion and audit queries |
-| Web dashboard | Next.js / React / TypeScript | View events, file metadata, provider, device, and actor attribution |
-| Detection engine | Python | Local text/file inspection, secrets, PII, optional Gitleaks |
-| Storage | PostgreSQL | Durable security-event metadata |
+| Endpoint agent | Rust | Native Messaging, local file streaming, device identity, event spool |
+| Browser extension | TypeScript / WebExtensions | Explicit opt-in, observe file selection, stream bytes to local agent |
+| Control plane | Go | Authenticated metadata ingestion and audit queries |
+| Detection engine | Python | Local content extraction, secret and PII detection, optional Gitleaks |
+| Dashboard | Next.js / React | Event, file, user/device, provider, and inspection visibility |
+| Storage | PostgreSQL | Metadata-only event storage |
 
-## Event visibility
+## v0.3 local inspection flow
 
-The current extension reports attachment_selected when a file is selected in a supported AI page. It records file basename, extension, MIME type, size, provider, device, and the endpoint-observed OS account.
+1. The user explicitly enables local inspection in the browser extension popup (off by default).
+2. When a file is selected in a supported AI-provider page, the extension reads its bytes in memory.
+3. The extension sends ordered 256 KiB chunks over Native Messaging to the Rust agent on the same endpoint.
+4. Rust validates the provider, filename, transfer sequence, and 10 MiB limit.
+5. Rust streams bytes to the local Python inspection process via stdin. No temporary copy is created.
+6. Python returns only rule/category/severity/confidence/offset metadata. Matched values and extracted text never enter the event.
+7. Rust stores the metadata event locally and forwards metadata only to the Go control plane.
 
-This is not proof that the upload completed or that the file reached an AI provider. An event may only be labelled prevented when a trusted enforcement component positively confirms prevention.
+The control plane never receives file bytes, prompts, extracted document text, clipboard content, or matched sensitive values.
 
-## Privacy and identity
+## Event semantics
 
-- Raw files, prompts, clipboard content, credentials, and matched PII values must never be sent to the control plane or stored in audit events.
-- File paths and full browser URLs are not collected.
-- The current actor is an OS account (local_os_account), not an enterprise-verified identity.
-- OIDC/SAML and managed-device identity mapping are future requirements.
-- Filenames can contain sensitive data; organizations need collection and retention controls before production use.
+- attachment_selected: legacy metadata-only observation.
+- inspection_completed: local inspection completed.
+- unknown: inspection could not be completed; do not interpret it as clean.
+- upload_prevented: reserved for a future trusted enforcement component that positively confirms prevention.
 
-## Repository layout
-
-- agent/rust — Rust Native Messaging endpoint agent.
-- apps/extension — Chromium/Firefox browser extension.
-- apps/dashboard — Next.js audit dashboard.
-- services/control-plane — Go API backed by PostgreSQL.
-- contracts/events — shared JSON Schema.
-- engine — local Python inspection engine.
-- deployments/compose — local PostgreSQL dependency.
-- docs — architecture and security requirements.
+A selected attachment is not proof that a provider upload completed. This milestone does not prevent the provider request from leaving the endpoint.
 
 ## Development
 
-Start PostgreSQL using:
+Install the local inspector:
+
+    python -m pip install -e ".[dev]" --project-dir engine
+
+Run backend and dashboard using the component READMEs. Configure the Rust agent with:
+- AEGIS_PYTHON: local Python executable.
+- AEGIS_ENGINE_PATH: absolute path to the engine directory.
+- AEGIS_CONTROL_PLANE_URL and AEGIS_AGENT_TOKEN for remote metadata ingestion.
+- AEGIS_EXTENSION_ORIGINS with the installed extension origin.
+
+Start PostgreSQL:
 
     docker compose -f deployments/compose/docker-compose.yml up -d
 
-Control plane requires DATABASE_URL, AEGIS_AGENT_TOKEN, and AEGIS_ADMIN_TOKEN. Dashboard requires server-side AEGIS_API_URL and AEGIS_ADMIN_TOKEN. Never expose these credentials through NEXT_PUBLIC variables or commit real secrets.
+## Security limitations
 
-See the component READMEs and docs before running the individual services.
+- Extension scanning is opt-in and disabled by default.
+- Current size limit is 10 MiB.
+- Selected bytes are read locally by the extension and temporarily buffered in endpoint memory for scanning.
+- Unsupported, encrypted, image-only, oversized, or failed inspections are marked failed/unknown, never clean.
+- No browser network interception, upload blocking, clipboard monitoring, TLS interception, OS network filtering, policy administration, SSO, or desktop AI-app enforcement is implemented.
+- OS username attribution is local account context, not enterprise-verified identity.
+- Shared development bearer tokens are not production authentication.
 
-## Current limitations
-
-- Browser currently observes attachment selection only; it does not intercept or block upload requests.
-- Rust agent records metadata and forwards events; content inspection is not yet integrated into the agent.
-- OS username is not verified enterprise identity.
-- Control plane uses shared development bearer tokens; production requires per-agent identity, rotation, TLS/mTLS, and enterprise authentication.
-- No clipboard enforcement, TLS inspection, OS network filtering, policy distribution, or desktop-AI enforcement yet.
+See docs/security/audit-and-privacy.md and agent/rust/README.md before deployment.
