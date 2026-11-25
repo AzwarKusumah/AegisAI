@@ -1,5 +1,11 @@
 # Audit, Privacy, and Attribution
 
+## Local inspection behavior
+
+The browser extension is disabled for content inspection by default. The user must enable “Inspect selected AI attachments” in the extension popup. When enabled, selected file bytes are read locally and passed to the Rust endpoint agent through Native Messaging for local inspection.
+
+The current file-size limit is 10 MiB. The agent buffers one selected file at a time, invokes the Python engine through stdin, and zeroizes the Rust transfer buffer after processing. The browser extension does not intentionally write a copy of the file to disk.
+
 ## Allowed event data
 
 - generated event ID and UTC timestamp;
@@ -18,29 +24,28 @@
 - full local file paths;
 - browser cookies, authorization headers, or AI-provider session tokens.
 
-Filenames can themselves contain sensitive information. Provide configurable collection, access control, and retention before production deployment.
+File contents are transferred only to the local Native Messaging host after the user enables inspection. The control plane receives metadata only. Filenames can themselves be sensitive; organizations should provide configurable collection, access control, and retention before production deployment.
 
 ## Event semantics
 
-attachment_selected: file selected in a supported AI page.
-send_action_observed: provider-specific send action observed; not implemented.
-inspection_completed: local inspection metadata attached; not implemented in browser pipeline.
-upload_prevented: trusted enforcement component positively confirmed the request did not leave the endpoint.
-unknown: final state could not be determined.
+- attachment_selected: legacy metadata-only file-selection observation.
+- inspection_completed: local inspection completed successfully.
+- unknown: inspection could not be completed; it must never be interpreted as clean.
+- upload_prevented: reserved for a trusted enforcement component that positively confirms the request did not leave the endpoint.
 
-Do not label attachment selection or send-action observation as a successful leak. Do not label a finding as prevented without enforcement confirmation.
+Do not label attachment selection as a successful leak. Do not label a finding as prevented without enforcement confirmation. This version scans on file selection and does not block the AI provider's upload request.
 
 ## Attribution
 
-The initial agent reports local_os_account. This is not enterprise-verified identity. The dashboard must show the identity source. Production should integrate device enrollment and an identity provider.
+The initial agent reports local_os_account. This is not enterprise-verified identity. The dashboard must show the attribution source. Production should integrate device enrollment and an identity provider.
 
 ## Production security requirements
 
 - per-agent credentials or mTLS with rotation and revocation;
 - OIDC/SAML and role-based dashboard access;
 - signed installer and agent binaries;
-- Native Messaging origin allowlist;
+- Native Messaging origin / allowed-extension allowlist;
 - access-controlled local spool, bounded queue, and replay protection;
 - database TLS, backups, retention, and audited administrator access;
 - request limits, schema validation, rate limiting, and integrity monitoring;
-- employee notice, purpose limitation, and approved retention.
+- employee notice, purpose limitation, opt-in/consent model, and approved retention.
