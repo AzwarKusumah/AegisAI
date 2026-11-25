@@ -14,7 +14,7 @@ AegisAI is a self-hosted AI Data Loss Prevention platform designed to inspect se
 | Browser extension | TypeScript / WebExtensions | Explicit opt-in, observe file selection, stream bytes to local agent |
 | Control plane | Go | Authenticated metadata ingestion and audit queries |
 | Detection engine | Python | Local content extraction, secret and PII detection, optional Gitleaks |
-| Dashboard | Next.js / React | Event, file, user/device, provider, and inspection visibility |
+| Dashboard | Next.js / React | Protected audit UI for file, user/device, provider, and inspection visibility |
 | Storage | PostgreSQL | Metadata-only event storage |
 
 ## v0.3 local inspection flow
@@ -23,9 +23,9 @@ AegisAI is a self-hosted AI Data Loss Prevention platform designed to inspect se
 2. When a file is selected in a supported AI-provider page, the extension reads its bytes in memory.
 3. The extension sends ordered 256 KiB chunks over Native Messaging to the Rust agent on the same endpoint.
 4. Rust validates the provider, filename, transfer sequence, and 10 MiB limit.
-5. Rust streams bytes to the local Python inspection process via stdin. No temporary copy is created.
-6. Python returns only rule/category/severity/confidence/offset metadata. Matched values and extracted text never enter the event.
-7. Rust stores the metadata event locally and forwards metadata only to the Go control plane.
+5. Rust streams bytes to the local Python inspection process via stdin. No temporary copy is created. The scan process has a 30-second timeout.
+6. Python returns only a compact summary: finding count, unique categories, highest severity, risk score, and completion status. Matched values and extracted text never enter the event.
+7. Rust clears the transfer buffer, stores the metadata event locally, and forwards metadata only to the Go control plane.
 
 The control plane never receives file bytes, prompts, extracted document text, clipboard content, or matched sensitive values.
 
@@ -44,13 +44,18 @@ Install the local inspector from the repository root:
 
     python -m pip install -e ./engine
 
-For PDF/DOCX/XLSX extraction support, install the optional documents dependencies:
+For PDF/DOCX/XLSX extraction support:
 
     python -m pip install -e "./engine[documents]"
 
 On Windows, register the Native Messaging host using agent/rust/installers/install-windows.ps1. Use -Browser chrome or edge with -ExtensionId, or -Browser firefox.
 
-Run backend and dashboard using the component READMEs. Configure the Rust agent with:
+Run the backend and dashboard using the component READMEs. Configure dashboard credentials on the server:
+- AEGIS_DASHBOARD_USER and AEGIS_DASHBOARD_PASSWORD protect the dashboard and its API routes with HTTP Basic Authentication.
+- AEGIS_API_URL and AEGIS_ADMIN_TOKEN connect the server-side dashboard route to the Go control plane.
+- Never prefix credentials with NEXT_PUBLIC_.
+
+Configure the Rust agent on each endpoint with:
 - AEGIS_PYTHON: local Python executable.
 - AEGIS_ENGINE_PATH: absolute path to the engine directory.
 - AEGIS_CONTROL_PLANE_URL and AEGIS_AGENT_TOKEN for remote metadata ingestion.
@@ -63,11 +68,12 @@ Start PostgreSQL:
 ## Security limitations
 
 - Extension scanning is opt-in and disabled by default.
-- Current size limit is 10 MiB.
+- Current size limit is 10 MiB per file and one file is scanned at a time.
 - Selected bytes are read locally by the extension and temporarily buffered in endpoint memory for scanning.
 - Unsupported, encrypted, image-only, oversized, or failed inspections are marked failed/unknown, never clean.
 - No browser network interception, upload blocking, clipboard monitoring, TLS interception, OS network filtering, policy administration, SSO, or desktop AI-app enforcement is implemented.
 - OS username attribution is local account context, not enterprise-verified identity.
 - Shared development bearer tokens are not production authentication.
+- Dashboard Basic Authentication should be used behind HTTPS for network-accessible deployments.
 
 See docs/security/audit-and-privacy.md and agent/rust/README.md before deployment.

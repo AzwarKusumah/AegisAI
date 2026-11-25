@@ -2,10 +2,29 @@
 
 Next.js audit console for metadata-only security events.
 
-Run:
+## Configure and run
+
+From apps/dashboard:
+
     npm install
-    AEGIS_API_URL=http://127.0.0.1:8787 AEGIS_ADMIN_TOKEN=replace-admin-token npm run dev
 
-The server route at /api/events forwards requests to the Go control plane. The admin token is server-side only and must never use a NEXT_PUBLIC_ variable.
+Set the server-side environment variables:
 
-The dashboard shows recent attachment-selection events, file metadata, actor attribution source, device, AI provider, event stage, inspection risk, and enforcement confirmation. It is not an upload-blocking or policy-administration interface.
+- AEGIS_API_URL=http://127.0.0.1:8787
+- AEGIS_ADMIN_TOKEN=<control-plane admin token>
+- AEGIS_DASHBOARD_USER=<dashboard username>
+- AEGIS_DASHBOARD_PASSWORD=<long random dashboard password>
+
+Then start:
+
+    npm run dev
+
+The app is protected by HTTP Basic Authentication. Configure a strong unique password. For any network-accessible deployment, terminate HTTPS at a trusted reverse proxy; Basic Authentication credentials must not traverse plaintext HTTP.
+
+The dashboard route at /api/events also sits behind the same authentication middleware. The control-plane admin token remains server-side and is never sent to browser JavaScript. Do not use NEXT_PUBLIC_ variables for credentials.
+
+## Dashboard scope
+
+The dashboard shows recent local inspection events, file metadata, actor attribution source, device, AI provider, event stage, inspection status, risk score, categories, and enforcement confirmation.
+
+It is not an upload-blocking or policy-administration interface. An inspected attachment is not proof that a provider upload completed.
