@@ -9,20 +9,22 @@ Version 0.3 adds local file-inspection streaming through Native Messaging.
 
 ## Runtime configuration
 
-- AEGIS_EXTENSION_ORIGINS: exact browser extension origin allowlist (comma-separated).
+- AEGIS_EXTENSION_ORIGINS: exact Chromium extension origin allowlist (comma-separated). Firefox launch is checked against the registered manifest path and fixed add-on ID.
 - AEGIS_CONTROL_PLANE_URL: optional Go control-plane base URL.
 - AEGIS_AGENT_TOKEN: agent event-ingestion token.
 - AEGIS_PYTHON: Python executable; defaults to python on Windows and python3 elsewhere.
 - AEGIS_ENGINE_PATH: path to the repository engine directory. Defaults to an engine directory beside the agent executable.
 - AEGIS_ALLOW_UNVERIFIED_ORIGIN=1: development-only origin bypass. Never use in managed deployments.
 
-Install the local inspector once:
+For Windows Native Messaging registration, see installers/README.md.
+
+From the repository root, install the local inspector once:
 
     python -m pip install -e ./engine
 
 For PDF/DOCX/XLSX support:
 
-    python -m pip install -e ".[documents]" --no-deps
+    python -m pip install -e "./engine[documents]"
 
 The agent streams selected-file bytes into the Python process stdin. It does not create a temporary copy of the selected file. File-size limit is 10 MiB; Native Messaging transfers use ordered 256 KiB chunks. Raw content is never placed in the event, local event spool, or control-plane request.
 
