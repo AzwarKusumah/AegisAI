@@ -24,7 +24,7 @@ The extension does not inspect text-only prompts or clipboard text. It cannot gu
 - File bytes are sent only to the local Rust Native Messaging host.
 - The Control Plane receives categories, severity, risk score, file metadata and policy outcomes; it does not receive raw files or detected secret values.
 - A policy may opt to share a short redacted preview. This is disabled by default and should be enabled only after a data-handling review.
-- The popup is informational and shows that browser protection is active.
+- The popup is informational and reads the native Agent status. It reports ready only when the local Agent is configured and the Control Plane health endpoint responds successfully. It has no opt-in switch; inspection starts automatically on supported pages.
 
 ## Limits
 
