@@ -2,7 +2,9 @@ import { providerForHost } from "./providers";
 
 const CHUNK_BYTES = 256 * 1024;
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
-const allowedChanges = new WeakSet<HTMLInputElement>();
+const pendingFileInputs = new WeakSet<HTMLInputElement>();
+const replayingInput = new WeakSet<HTMLInputElement>();
+const replayingChange = new WeakSet<HTMLInputElement>();
 const allowedDrops = new WeakSet<EventTarget>();
 const allowedPastes = new WeakSet<EventTarget>();
 
@@ -137,28 +139,52 @@ async function inspectFiles(files: File[], providerDomain: string): Promise<bool
 
 const provider = providerForHost(window.location.hostname);
 if (provider) {
-  document.addEventListener("change", (event) => {
-    const input = event.target;
-    if (!(input instanceof HTMLInputElement) || input.type !== "file" || !input.files) return;
-    if (allowedChanges.has(input)) {
-      allowedChanges.delete(input);
+  const gateFileInputEvent = (event: Event, input: HTMLInputElement, eventType: "input" | "change") => {
+    const replayed = eventType === "input" ? replayingInput : replayingChange;
+    if (replayed.delete(input)) return;
+    if (pendingFileInputs.has(input)) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
       return;
     }
-    const files = Array.from(input.files);
+
+    const files = input.files ? Array.from(input.files) : [];
     if (!files.length) return;
 
-    // Stop the provider's original change handlers until the local policy decision is known.
+    // Hold both standard file-input events until local inspection and policy evaluation finish.
+    pendingFileInputs.add(input);
     event.preventDefault();
     event.stopImmediatePropagation();
     void (async () => {
       const blocked = await inspectFiles(files, provider.domain);
-      if (blocked) {
+      pendingFileInputs.delete(input);
+      const currentFiles = input.files ? Array.from(input.files) : [];
+      const selectionChanged = currentFiles.length !== files.length ||
+        currentFiles.some((file, index) => file !== files[index]);
+      if (blocked || selectionChanged) {
+        if (selectionChanged) {
+          showNotice("Attachment selection changed", "The selected files changed during inspection. Select them again so the new files can be checked.", true);
+        }
         input.value = "";
         return;
       }
-      allowedChanges.add(input);
-      input.dispatchEvent(new Event("change", { bubbles: true }));
+      replayingInput.add(input);
+      input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+      replayingChange.add(input);
+      input.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
     })();
+  };
+
+  document.addEventListener("input", (event) => {
+    const input = event.target;
+    if (!(input instanceof HTMLInputElement) || input.type !== "file") return;
+    gateFileInputEvent(event, input, "input");
+  }, true);
+
+  document.addEventListener("change", (event) => {
+    const input = event.target;
+    if (!(input instanceof HTMLInputElement) || input.type !== "file") return;
+    gateFileInputEvent(event, input, "change");
   }, true);
 
   document.addEventListener("drop", (event) => {
