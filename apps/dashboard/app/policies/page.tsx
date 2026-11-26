@@ -11,7 +11,7 @@ const emptyPolicy: DlpPolicy = {
   priority: 100,
   action: "block",
   min_severity: "high",
-  min_risk_score: 70,
+  min_risk_score: 60,
   categories: ["cloud_credential", "private_key", "source_control_credential", "credential"],
   providers: [],
   extensions: [],

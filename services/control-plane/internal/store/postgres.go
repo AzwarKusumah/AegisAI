@@ -124,7 +124,7 @@ func (s *Store) ensureDefaultPolicies(ctx context.Context) error {
 		{
 			ID: "baseline-block-credentials", Name: "Block exposed credentials",
 			Description: "Block supported browser attachment events when they contain cloud keys, private keys, source-control credentials, or credential assignments.",
-			Enabled: true, Priority: 10, Action: "block", MinSeverity: "high", MinRiskScore: 70,
+			Enabled: true, Priority: 10, Action: "block", MinSeverity: "high", MinRiskScore: 60,
 			Categories: []string{"cloud_credential", "private_key", "source_control_credential", "credential", "payment_card"},
 		},
 		{
