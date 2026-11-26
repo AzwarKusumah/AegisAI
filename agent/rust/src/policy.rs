@@ -243,7 +243,6 @@ mod tests {
         assert_eq!(decision.action, "allow");
     }
 
-
     #[test]
     fn matching_exception_exempts_a_policy() {
         let mut block = policy("block", 10);
