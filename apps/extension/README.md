@@ -1,6 +1,6 @@
 # AegisAI Browser Extension
 
-Version 0.4.0 builds separate Chromium Manifest V3 and Firefox Manifest V2 packages from the same TypeScript source.
+Version 0.4.0 builds separate Chromium and Firefox packages from the same TypeScript source. Both packages use Manifest V3 with browser-specific background declarations.
 
 ## Build both browser packages
 
@@ -17,8 +17,8 @@ Build only one target:
     npm run build:firefox
 
 The generated, loadable extension directories are:
-- dist/chromium — Chrome, Edge, Brave, and other Chromium browsers.
-- dist/firefox — Firefox.
+- dist/chromium — Chrome, Edge, Brave, and other Chromium browsers (Manifest V3 service worker).
+- dist/firefox — Firefox (Manifest V3 background scripts/event page).
 
 Load the corresponding directory as an unpacked/temporary extension in the browser's developer extension page. The generated folders include their own manifest.json, compiled bundles, and popup assets. Build outputs are generated locally and are not committed.
 

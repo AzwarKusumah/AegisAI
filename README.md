@@ -48,8 +48,8 @@ From apps/extension:
     npm run test:packages
 
 Builds are generated separately:
-- apps/extension/dist/chromium — Chrome, Edge, Brave, and other Chromium browsers (Manifest V3).
-- apps/extension/dist/firefox — Firefox (Manifest V2).
+- apps/extension/dist/chromium — Chrome, Edge, Brave, and other Chromium browsers (Manifest V3 service worker).
+- apps/extension/dist/firefox — Firefox (Manifest V3 background scripts).
 
 Load the corresponding directory as an unpacked/temporary extension from the browser's extension developer page. Installation and Native Messaging registration are separate endpoint setup steps; see apps/extension/README.md and agent/rust/README.md.
 

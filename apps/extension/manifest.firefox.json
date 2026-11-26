@@ -1,14 +1,14 @@
 {
-  "manifest_version": 2,
+  "manifest_version": 3,
   "name": "AegisAI Protection",
   "version": "0.4.0",
   "description": "Opt-in local inspection of selected files on supported AI-provider pages.",
-  "permissions": [
-    "nativeMessaging", "storage",
+  "permissions": ["nativeMessaging", "storage"],
+  "host_permissions": [
     "https://chatgpt.com/*", "https://claude.ai/*", "https://gemini.google.com/*",
     "https://copilot.microsoft.com/*", "https://perplexity.ai/*", "https://grok.com/*"
   ],
-  "browser_action": { "default_popup": "popup.html" },
+  "action": { "default_popup": "popup.html" },
   "background": { "scripts": ["background.js"] },
   "content_scripts": [{
     "matches": [

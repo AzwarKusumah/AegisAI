@@ -5,7 +5,7 @@ import { dirname, resolve } from "node:path";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const expected = {
   chromium: { manifest_version: 3, background: "service_worker" },
-  firefox: { manifest_version: 2, background: "scripts" }
+  firefox: { manifest_version: 3, background: "scripts" }
 };
 
 for (const [name, contract] of Object.entries(expected)) {
