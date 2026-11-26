@@ -72,12 +72,12 @@ jobs:
             archive: zip
           - package: linux-x86_64
             target: x86_64-unknown-linux-gnu
-            runner: ubuntu-latest
+            runner: ubuntu-22.04
             extension: ""
             archive: tar.gz
           - package: linux-aarch64
             target: aarch64-unknown-linux-gnu
-            runner: ubuntu-24.04-arm
+            runner: ubuntu-22.04-arm
             extension: ""
             archive: tar.gz
           - package: macos-x86_64
