@@ -3,8 +3,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Deserialize)]
 pub struct PolicyException {
     #[serde(default)]
-    pub name: String,
-    #[serde(default)]
     pub categories: Vec<String>,
     #[serde(default)]
     pub providers: Vec<String>,
@@ -266,7 +264,6 @@ mod tests {
     fn matching_exception_exempts_a_policy() {
         let mut block = policy("block", 10);
         block.exceptions = vec![PolicyException {
-            name: "Approved provider exception".into(),
             categories: vec![],
             providers: vec!["chatgpt".into()],
             extensions: vec![],
@@ -291,11 +288,11 @@ mod tests {
     #[test]
     fn exception_requires_all_configured_dimensions_to_match() {
         let mut block = policy("block", 10);
+        block.extensions = vec!["pdf".into(), "xlsx".into()];
         block.exceptions = vec![PolicyException {
-            name: "Approved ChatGPT PDF category".into(),
             categories: vec!["email".into()],
             providers: vec!["chatgpt".into()],
-            extensions: vec!["pdf".into()],
+            extensions: vec!["xlsx".into()],
         }];
         let bundle = PolicyBundle {
             policies: vec![block],
@@ -305,7 +302,7 @@ mod tests {
         let incomplete_exception_match = evaluate(
             &bundle,
             "chatgpt",
-            "docx",
+            "pdf",
             true,
             "critical",
             100,
