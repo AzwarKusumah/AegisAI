@@ -108,8 +108,11 @@ fi
 mkdir -p "$HOST_DIR"
 chmod 700 "$HOST_DIR"
 HOST_MANIFEST="$HOST_DIR/com.aegisai.agent.json"
+# Firefox passes the registered manifest path to the host. Keep the canonical
+# file in dirs::data_local_dir()/AegisAI and register a symlink to that path.
+CANONICAL_MANIFEST="$INSTALL_DIR/com.aegisai.agent.json"
 if [[ "$BROWSER" == "firefox" ]]; then
-  python3 - "$HOST_MANIFEST" "$AGENT_PATH" <<'PY'
+  python3 - "$CANONICAL_MANIFEST" "$AGENT_PATH" <<'PY'
 import json, os, sys
 path, binary = sys.argv[1:]
 with open(path, "w", encoding="utf-8") as handle:
@@ -124,7 +127,7 @@ with open(path, "w", encoding="utf-8") as handle:
 os.chmod(path, 0o600)
 PY
 else
-  python3 - "$HOST_MANIFEST" "$AGENT_PATH" "$EXTENSION_ORIGIN" <<'PY'
+  python3 - "$CANONICAL_MANIFEST" "$AGENT_PATH" "$EXTENSION_ORIGIN" <<'PY'
 import json, os, sys
 path, binary, origin = sys.argv[1:]
 with open(path, "w", encoding="utf-8") as handle:
@@ -139,6 +142,7 @@ with open(path, "w", encoding="utf-8") as handle:
 os.chmod(path, 0o600)
 PY
 fi
+ln -sfn "$CANONICAL_MANIFEST" "$HOST_MANIFEST"
 
 AEGIS_CFG_ENGINE="$ENGINE_PATH" \
 AEGIS_CFG_PYTHON="$PYTHON_PATH" \
