@@ -43,7 +43,15 @@ The self-contained installer includes:
 - Local detection engine.
 - Chromium extension package.
 
-No PowerShell window, Rust toolchain, or separate Python installation is needed on the endpoint. The installer registers the Native Messaging host for the selected browser and enrolls the device with a one-time code.
+No PowerShell window, Rust toolchain, or separate Python installation is needed on the endpoint. The installer registers the Native Messaging host for the selected browser and enrolls the device with a one-time code. Before enrollment, it checks the Control Plane `/healthz` endpoint so a routing problem does not consume the pairing code.
+
+### Enrollment URL and connection troubleshooting
+
+Use the public HTTPS URL of the Control Plane, for example `https://dlp.example.com`. The URL must route both `/healthz` and `/api/v1/*` to the Control Plane service on port `8787`.
+
+The default Docker deployment publishes the Control Plane on host loopback (`127.0.0.1:8787`) for a reverse proxy. Therefore, a remote endpoint normally cannot connect directly to `https://<VPS-IP>:8787`. Terminate TLS at a reverse proxy such as Nginx or Caddy and enter its public hostname in the installer. Do not expose the internal Control Plane port directly without an intentional firewall and TLS design.
+
+A successful `GET https://<your-hostname>/healthz` should return HTTP 200 with `{"status":"ok"}`. The installer performs this check before submitting the one-time pairing code.
 
 The browser extension must still be loaded unpacked once from the folder extracted by the installer unless the extension is published to a browser store or deployed through an enterprise force-install policy. This is a browser platform requirement; the installer opens the extension settings page and shows the exact folder to load.
 
