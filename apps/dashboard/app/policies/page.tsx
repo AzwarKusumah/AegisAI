@@ -15,6 +15,7 @@ const emptyPolicy: DlpPolicy = {
   categories: ["cloud_credential", "private_key", "source_control_credential", "credential"],
   providers: [],
   extensions: [],
+  fingerprints: [],
   exceptions: [],
   share_redacted_preview: false
 };
@@ -24,6 +25,7 @@ const categories = [
   ["private_key", "Private keys"],
   ["source_control_credential", "Source-control tokens"],
   ["credential", "Credential assignments"],
+  ["payment_card", "Payment card numbers"],
   ["national_identifier", "National identifiers"],
   ["email", "Email addresses"],
   ["phone", "Phone numbers"]
@@ -61,19 +63,24 @@ export default function PoliciesPage() {
   function beginEdit(policy: DlpPolicy) {
     setError("");
     setIsNew(false);
-    setEditing({ ...policy, categories: [...policy.categories], providers: [...policy.providers], extensions: [...policy.extensions], exceptions: (policy.exceptions ?? []).map((item) => ({ ...item, categories: [...item.categories], providers: [...item.providers], extensions: [...item.extensions] })) });
+    setEditing({ ...policy, categories: [...policy.categories], providers: [...policy.providers], extensions: [...policy.extensions], fingerprints: [...(policy.fingerprints ?? [])], exceptions: (policy.exceptions ?? []).map((item) => ({ ...item, categories: [...item.categories], providers: [...item.providers], extensions: [...item.extensions], fingerprints: [...(item.fingerprints ?? [])] })) });
   }
   function toggleListValue(key: "categories" | "providers", value: string) {
     if (!editing) return;
     const values = editing[key];
     setEditing({ ...editing, [key]: values.includes(value) ? values.filter((item) => item !== value) : [...values, value] });
   }
-  function updateException(field: "name" | "categories" | "providers" | "extensions", value: string) {
+  function updateException(field: "name" | "action" | "categories" | "providers" | "extensions" | "fingerprints", value: string) {
     if (!editing) return;
-    const current = editing.exceptions[0] ?? { name: "Exception", categories: [], providers: [], extensions: [] };
-    const next = field === "name" ? { ...current, name: value } :
-      { ...current, [field]: value.split(",").map((item) => item.trim()).filter(Boolean) };
-    setEditing({ ...editing, exceptions: value.trim() ? [next] : [next] });
+    const current = editing.exceptions[0] ?? { name: "Approved exception", action: "allow" as const, categories: [], providers: [], extensions: [], fingerprints: [] };
+    let next = current;
+    if (field === "name") next = { ...current, name: value };
+    else if (field === "action") next = { ...current, action: value as "block" | "audit" | "allow" };
+    else if (field === "categories") next = { ...current, categories: value.split(",").map((item) => item.trim()).filter(Boolean) };
+    else if (field === "providers") next = { ...current, providers: value.split(",").map((item) => item.trim()).filter(Boolean) };
+    else if (field === "extensions") next = { ...current, extensions: value.split(",").map((item) => item.trim()).filter(Boolean) };
+    else next = { ...current, fingerprints: value.split(",").map((item) => item.trim()).filter(Boolean) };
+    setEditing({ ...editing, exceptions: [next] });
   }
 
   async function save() {
@@ -85,7 +92,14 @@ export default function PoliciesPage() {
       id: isNew ? "policy-" + crypto.randomUUID() : editing.id,
       priority: Number(editing.priority),
       min_risk_score: Number(editing.min_risk_score),
-      extensions: editing.extensions.map((item) => item.trim().replace(/^\./, "").toLowerCase()).filter(Boolean)
+      extensions: editing.extensions.map((item) => item.trim().replace(/^\./, "").toLowerCase()).filter(Boolean),
+      fingerprints: editing.fingerprints.map((item) => item.trim().toLowerCase()).filter(Boolean),
+      exceptions: editing.exceptions.map((item) => ({
+        ...item,
+        action: item.action || "allow",
+        extensions: item.extensions.map((value) => value.trim().replace(/^\./, "").toLowerCase()).filter(Boolean),
+        fingerprints: item.fingerprints.map((value) => value.trim().toLowerCase()).filter(Boolean)
+      }))
     };
     try {
       const response = await fetch(isNew ? "/api/policies" : "/api/policies/" + encodeURIComponent(editing.id), {
@@ -192,13 +206,16 @@ export default function PoliciesPage() {
               <div className="choiceGrid">{services.map((value) => <label className="choice" key={value}><input type="checkbox" checked={editing.providers.includes(value)} onChange={() => toggleListValue("providers", value)} /><span>{value}</span></label>)}</div>
             </div>
             <label className="fieldGroup"><span>File extensions (comma-separated)</span><input className="control" placeholder="pdf, docx, xlsx" value={editing.extensions.join(", ")} onChange={(event) => setEditing({ ...editing, extensions: event.target.value.split(",") })} /></label>
+            <label className="fieldGroup"><span>Exact file fingerprints · SHA-256</span><textarea className="control" rows={2} placeholder="One 64-character SHA-256 per entry, comma-separated" value={editing.fingerprints.join(", ")} onChange={(event) => setEditing({ ...editing, fingerprints: event.target.value.split(",") })} /></label>
             <div className="fieldGroup">
               <span>Exceptions</span>
-              <p className="fieldHelp">A matching exception skips this policy. Leave these fields empty when there are no approved exceptions.</p>
+              <p className="fieldHelp">Exceptions are evaluated only after the parent policy matches. Set an explicit outcome for the matching exception.</p>
               <label className="fieldGroup"><span>Exception name</span><input className="control" value={editing.exceptions[0]?.name ?? ""} onChange={(event) => updateException("name", event.target.value)} placeholder="Approved workspace" /></label>
+              <label className="fieldGroup"><span>Exception action</span><select className="control" value={editing.exceptions[0]?.action ?? "allow"} onChange={(event) => updateException("action", event.target.value)}><option value="allow">Allow this exception</option><option value="audit">Allow and audit</option><option value="block">Block this exception</option></select></label>
               <label className="fieldGroup"><span>Exclude categories (comma-separated)</span><input className="control" value={editing.exceptions[0]?.categories.join(", ") ?? ""} onChange={(event) => updateException("categories", event.target.value)} placeholder="email, phone" /></label>
               <label className="fieldGroup"><span>Exclude services (comma-separated)</span><input className="control" value={editing.exceptions[0]?.providers.join(", ") ?? ""} onChange={(event) => updateException("providers", event.target.value)} placeholder="chatgpt, claude" /></label>
               <label className="fieldGroup"><span>Exclude extensions (comma-separated)</span><input className="control" value={editing.exceptions[0]?.extensions.join(", ") ?? ""} onChange={(event) => updateException("extensions", event.target.value)} placeholder="pdf, docx" /></label>
+              <label className="fieldGroup"><span>Exclude file fingerprints (SHA-256)</span><textarea className="control" rows={2} value={editing.exceptions[0]?.fingerprints.join(", ") ?? ""} onChange={(event) => updateException("fingerprints", event.target.value)} placeholder="Approved file SHA-256 values" /></label>
             </div>
             <label className="choice"><input type="checkbox" checked={editing.enabled} onChange={(event) => setEditing({ ...editing, enabled: event.target.checked })} /><span>Policy enabled</span></label>
             <label className="choice"><input type="checkbox" checked={editing.share_redacted_preview} onChange={(event) => setEditing({ ...editing, share_redacted_preview: event.target.checked })} /><span>Share a short document preview after detected values are redacted</span></label>

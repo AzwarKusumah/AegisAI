@@ -203,9 +203,25 @@ internal sealed class InstallerForm : Form
             if (code.Length != 32 || !Regex.IsMatch(code, "^[0-9a-fA-F]{32}$"))
                 throw new InvalidOperationException("The pairing code must contain 32 hexadecimal characters.");
 
+            // The Native Messaging Agent reads its stable device ID from
+            // %LOCALAPPDATA%\\AegisAI\\device-id. Persist exactly the ID enrolled here.
+            Directory.CreateDirectory(appRoot);
+            var deviceIdPath = Path.Combine(appRoot, "device-id");
+            string deviceId;
+            if (File.Exists(deviceIdPath))
+            {
+                deviceId = (await File.ReadAllTextAsync(deviceIdPath)).Trim();
+                if (!Guid.TryParse(deviceId, out _))
+                    throw new InvalidOperationException("The existing AegisAI device ID is invalid. Remove the old device registration before reinstalling.");
+            }
+            else
+            {
+                deviceId = Guid.NewGuid().ToString();
+                await File.WriteAllTextAsync(deviceIdPath, deviceId, new UTF8Encoding(false));
+            }
+
             status.Text = "Requesting device enrollment…";
             using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
-            var deviceId = Guid.NewGuid().ToString();
             var request = new {
                 pairing_code = code,
                 device_id = deviceId,

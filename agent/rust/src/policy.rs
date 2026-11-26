@@ -3,11 +3,17 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Deserialize)]
 pub struct PolicyException {
     #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub action: String,
+    #[serde(default)]
     pub categories: Vec<String>,
     #[serde(default)]
     pub providers: Vec<String>,
     #[serde(default)]
     pub extensions: Vec<String>,
+    #[serde(default)]
+    pub fingerprints: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -29,6 +35,8 @@ pub struct DlpPolicy {
     pub providers: Vec<String>,
     #[serde(default)]
     pub extensions: Vec<String>,
+    #[serde(default)]
+    pub fingerprints: Vec<String>,
     #[serde(default)]
     pub exceptions: Vec<PolicyException>,
     #[serde(default)]
@@ -67,6 +75,7 @@ fn exception_matches(
     provider: &str,
     extension: &str,
     categories: &[String],
+    fingerprint: &str,
 ) -> bool {
     let mut has_condition = false;
 
@@ -98,6 +107,12 @@ fn exception_matches(
             return false;
         }
     }
+    if !exception.fingerprints.is_empty() {
+        has_condition = true;
+        if !exception.fingerprints.iter().any(|wanted| wanted.eq_ignore_ascii_case(fingerprint)) {
+            return false;
+        }
+    }
 
     has_condition
 }
@@ -109,15 +124,9 @@ fn policy_matches(
     severity: &str,
     risk_score: u8,
     categories: &[String],
+    fingerprint: &str,
 ) -> bool {
     if !policy.enabled || !matches!(policy.action.as_str(), "block" | "audit" | "allow") {
-        return false;
-    }
-    if policy
-        .exceptions
-        .iter()
-        .any(|exception| exception_matches(exception, provider, extension, categories))
-    {
         return false;
     }
     if !policy.min_severity.is_empty()
@@ -148,6 +157,11 @@ fn policy_matches(
     {
         return false;
     }
+    if !policy.fingerprints.is_empty()
+        && !policy.fingerprints.iter().any(|wanted| wanted.eq_ignore_ascii_case(fingerprint))
+    {
+        return false;
+    }
     true
 }
 
@@ -155,6 +169,7 @@ pub fn evaluate(
     bundle: &PolicyBundle,
     provider: &str,
     extension: &str,
+    fingerprint: &str,
     inspection_complete: bool,
     severity: &str,
     risk_score: u8,
@@ -177,7 +192,19 @@ pub fn evaluate(
         .collect::<Vec<_>>();
     ordered.sort_by_key(|item| item.priority);
     for item in ordered {
-        if policy_matches(item, provider, extension, severity, risk_score, categories) {
+        if policy_matches(item, provider, extension, severity, risk_score, categories, fingerprint) {
+            if let Some(exception) = item.exceptions.iter().find(|exception| {
+                exception_matches(exception, provider, extension, categories, fingerprint)
+            }) {
+                let exception_action = if exception.action.is_empty() { "allow" } else { exception.action.as_str() };
+                return PolicyDecision {
+                    action: exception_action.to_owned(),
+                    policy_id: Some(item.id.clone()),
+                    policy_name: Some(item.name.clone()),
+                    reason: format!("matched_exception:{}:{}", item.id, exception.name),
+                    share_redacted_preview: item.share_redacted_preview && exception_action != "block",
+                };
+            }
             return PolicyDecision {
                 action: item.action.clone(),
                 policy_id: Some(item.id.clone()),
@@ -218,6 +245,7 @@ mod tests {
             categories: vec!["cloud_credential".into()],
             providers: vec!["chatgpt".into()],
             extensions: vec!["pdf".into()],
+            fingerprints: vec![],
             exceptions: vec![],
             share_redacted_preview: false,
         }
@@ -233,6 +261,7 @@ mod tests {
             &bundle,
             "chatgpt",
             "pdf",
+            "",
             true,
             "critical",
             100,
@@ -252,6 +281,7 @@ mod tests {
             &bundle,
             "claude",
             "pdf",
+            "",
             true,
             "critical",
             100,
@@ -264,9 +294,12 @@ mod tests {
     fn matching_exception_exempts_a_policy() {
         let mut block = policy("block", 10);
         block.exceptions = vec![PolicyException {
+            name: "approved workspace".into(),
+            action: "allow".into(),
             categories: vec![],
             providers: vec!["chatgpt".into()],
             extensions: vec![],
+            fingerprints: vec![],
         }];
         let bundle = PolicyBundle {
             policies: vec![block],
@@ -276,13 +309,14 @@ mod tests {
             &bundle,
             "chatgpt",
             "pdf",
+            "",
             true,
             "critical",
             100,
             &["cloud_credential".into()],
         );
         assert_eq!(decision.action, "allow");
-        assert_eq!(decision.reason, "no_policy_match");
+        assert!(decision.reason.starts_with("matched_exception:policy-10:"));
     }
 
     #[test]
@@ -290,9 +324,12 @@ mod tests {
         let mut block = policy("block", 10);
         block.extensions = vec!["pdf".into(), "xlsx".into()];
         block.exceptions = vec![PolicyException {
+            name: "approved spreadsheet".into(),
+            action: "allow".into(),
             categories: vec!["email".into()],
             providers: vec!["chatgpt".into()],
             extensions: vec!["xlsx".into()],
+            fingerprints: vec![],
         }];
         let bundle = PolicyBundle {
             policies: vec![block],
@@ -303,6 +340,7 @@ mod tests {
             &bundle,
             "chatgpt",
             "pdf",
+            "",
             true,
             "critical",
             100,
@@ -314,6 +352,7 @@ mod tests {
             &bundle,
             "chatgpt",
             "xlsx",
+            "",
             true,
             "critical",
             100,
@@ -328,8 +367,39 @@ mod tests {
             policies: vec![],
             fail_closed: true,
         };
-        let decision = evaluate(&bundle, "chatgpt", "pdf", false, "none", 0, &[]);
+        let decision = evaluate(&bundle, "chatgpt", "pdf", "", false, "none", 0, &[]);
         assert_eq!(decision.action, "block");
         assert_eq!(decision.reason, "inspection_failed_fail_closed");
+    }
+}
+
+#[cfg(test)]
+mod fingerprint_tests {
+    use super::*;
+
+    #[test]
+    fn exact_file_fingerprint_can_be_blocked() {
+        let policy = DlpPolicy {
+            id: "known-confidential-file".into(),
+            name: "Known confidential file".into(),
+            enabled: true,
+            priority: 1,
+            action: "block".into(),
+            min_severity: "none".into(),
+            min_risk_score: 0,
+            categories: vec![],
+            providers: vec![],
+            extensions: vec![],
+            fingerprints: vec!["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into()],
+            exceptions: vec![],
+            share_redacted_preview: false,
+        };
+        let bundle = PolicyBundle { policies: vec![policy], fail_closed: true };
+        let decision = evaluate(
+            &bundle, "chatgpt", "pdf",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            true, "none", 0, &[]
+        );
+        assert_eq!(decision.action, "block");
     }
 }

@@ -105,6 +105,35 @@ def _redact_preview(text: str, findings: tuple[Finding, ...], limit: int = 1400)
     return snippet.strip()
 
 
+class PaymentCardDetector:
+    name = "builtin-payment-card"
+    CANDIDATE = re.compile(r"(?<!\\d)\\d(?:[ -]?\\d){12,18}(?!\\d)")
+
+    @staticmethod
+    def _luhn_valid(digits: str) -> bool:
+        total = 0
+        parity = len(digits) % 2
+        for index, character in enumerate(digits):
+            value = int(character)
+            if index % 2 == parity:
+                value *= 2
+                if value > 9:
+                    value -= 9
+            total += value
+        return total % 10 == 0
+
+    def detect(self, text):
+        findings = []
+        for match in self.CANDIDATE.finditer(text):
+            digits = re.sub(r"[^0-9]", "", match.group(0))
+            if 13 <= len(digits) <= 19 and self._luhn_valid(digits):
+                findings.append(Finding(
+                    "payment-card-number", "payment_card", "high",
+                    match.start(), match.end(), .95, self.name
+                ))
+        return findings
+
+
 def score_findings(findings):
     weights = {"low": 20, "medium": 40, "high": 70, "critical": 100}
     scores = [round(weights[item.severity] * max(0.0, min(1.0, item.confidence))) for item in findings]
@@ -116,6 +145,7 @@ class InspectionEngine:
         if registry is None:
             self.registry.register(SecretDetector())
             self.registry.register(PIIDetector())
+            self.registry.register(PaymentCardDetector())
 
     def inspect_text(self, text: str, source_name: str | None = None) -> InspectionResult:
         if not isinstance(text, str):
@@ -147,9 +177,9 @@ class InspectionEngine:
             errors.extend(result.errors)
             safe_preview = _redact_preview(text, result.findings)
             if safe_preview:
-                previews.append(f"[{document_name}]\\n{safe_preview}")
+                previews.append(f"[{document_name}]\n{safe_preview}")
         findings.sort(key=lambda item: (item.start, item.end, item.rule_id, item.detector))
-        preview = "\\n\\n".join(previews)[:4000] or None
+        preview = "\n\n".join(previews)[:4000] or None
         return InspectionResult(tuple(findings), score_findings(findings), not errors, tuple(errors), filename, preview)
 
     def inspect_file(self, path: str | Path) -> InspectionResult:
@@ -166,6 +196,7 @@ def create_default_engine(include_gitleaks: bool = True) -> InspectionEngine:
     registry = DetectorRegistry()
     registry.register(SecretDetector())
     registry.register(PIIDetector())
+    registry.register(PaymentCardDetector())
     if include_gitleaks and shutil.which("gitleaks"):
         from .gitleaks import GitleaksDetector
         registry.register(GitleaksDetector())

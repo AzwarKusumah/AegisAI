@@ -12,6 +12,7 @@ use protocol::{
     SecurityEvent, CHUNK_SIZE, MAX_FILE_SIZE,
 };
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use serde_json::json;
 use std::io::{stdin, stdout, Write};
 use std::path::PathBuf;
@@ -307,15 +308,18 @@ fn build_event(
     })
 }
 
+fn sha256_hex(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
 fn fetch_policy_bundle() -> Result<Option<PolicyBundle>> {
     let base = match setting("AEGIS_CONTROL_PLANE_URL") {
         Some(value) => value.trim_end_matches('/').to_owned(),
         None => return Ok(None),
     };
-    let token = match setting("AEGIS_AGENT_TOKEN") {
-        Some(value) => value,
-        None => return Ok(None),
-    };
+    let token = setting("AEGIS_AGENT_TOKEN")
+        .ok_or_else(|| anyhow!("device token is missing while remote policy service is configured"))?;
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
         .build()?;
@@ -460,11 +464,13 @@ fn handle_message(
                 .and_then(|value| value.to_str())
                 .unwrap_or("")
                 .to_ascii_lowercase();
+            let fingerprint = sha256_hex(&transfer.bytes);
             let decision = match fetch_policy_bundle() {
                 Ok(Some(bundle)) => evaluate_policy(
                     &bundle,
                     provider,
                     &extension,
+                    &fingerprint,
                     inspection.status == "completed",
                     &inspection.severity,
                     inspection.risk_score,

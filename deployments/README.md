@@ -20,6 +20,29 @@ Database data remains in the aegisai_postgres named volume. The down -v option d
 
 Keep the Dashboard and Control Plane bound to loopback behind a TLS reverse proxy for normal operation. PostgreSQL is never published. Temporary direct-IP HTTP testing is possible by setting AEGIS_CONTROL_PLANE_BIND=0.0.0.0 and opening TCP 8787 in both the VPS firewall and provider security group, but it exposes enrollment tokens without encryption and must not be used for routine operation.
 
+## TLS reverse proxy
+
+For normal remote deployments, keep the Dashboard and Control Plane host bindings on loopback and terminate TLS at Caddy. Route only the public Agent endpoints to the Control Plane; keep administrator-only endpoints private:
+
+```caddy
+aegis.example.com {
+    @agent_api path /api/v1/agents/enroll /api/v1/events /api/v1/agent/policies
+    handle @agent_api {
+        reverse_proxy 127.0.0.1:8787
+    }
+
+    handle /api/v1/* {
+        respond "Not Found" 404
+    }
+
+    handle {
+        reverse_proxy 127.0.0.1:3000
+    }
+}
+```
+
+The `/api/v1/agent/policies` route is required so enrolled endpoints can retrieve signed-in-device policy data. It is authenticated with each device's revocable token. The Control Plane's administrator policy CRUD endpoints remain inaccessible through the public proxy.
+
 ## Device enrollment
 
 1. Sign in to the Dashboard with AEGIS_DASHBOARD_USER and AEGIS_DASHBOARD_PASSWORD.

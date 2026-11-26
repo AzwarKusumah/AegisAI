@@ -125,7 +125,7 @@ func (s *Store) ensureDefaultPolicies(ctx context.Context) error {
 			ID: "baseline-block-credentials", Name: "Block exposed credentials",
 			Description: "Block supported browser attachment events when they contain cloud keys, private keys, source-control credentials, or credential assignments.",
 			Enabled: true, Priority: 10, Action: "block", MinSeverity: "high", MinRiskScore: 70,
-			Categories: []string{"cloud_credential", "private_key", "source_control_credential", "credential"},
+			Categories: []string{"cloud_credential", "private_key", "source_control_credential", "credential", "payment_card"},
 		},
 		{
 			ID: "baseline-audit-personal-data", Name: "Audit personal data",
@@ -170,11 +170,15 @@ func (s *Store) SavePolicy(ctx context.Context, item policies.Policy) error {
 	if item.Categories == nil { item.Categories = []string{} }
 	if item.Providers == nil { item.Providers = []string{} }
 	if item.Extensions == nil { item.Extensions = []string{} }
+	if item.Fingerprints == nil { item.Fingerprints = []string{} }
 	if item.Exceptions == nil { item.Exceptions = []policies.PolicyException{} }
 	for index := range item.Exceptions {
+		if item.Exceptions[index].Action == "" { item.Exceptions[index].Action = "allow" }
+
 		if item.Exceptions[index].Categories == nil { item.Exceptions[index].Categories = []string{} }
 		if item.Exceptions[index].Providers == nil { item.Exceptions[index].Providers = []string{} }
 		if item.Exceptions[index].Extensions == nil { item.Exceptions[index].Extensions = []string{} }
+		if item.Exceptions[index].Fingerprints == nil { item.Exceptions[index].Fingerprints = []string{} }
 	}
 	raw, err := json.Marshal(item)
 	if err != nil {

@@ -42,3 +42,16 @@ def test_redacted_preview_hides_detected_secret_values():
     assert result.redacted_preview
     assert "AKIAIOSFODNN7EXAMPLE" not in result.redacted_preview
     assert "[REDACTED:cloud_credential]" in result.redacted_preview
+
+def test_payment_card_classifier_uses_luhn_validation():
+    result = create_default_engine(include_gitleaks=False).inspect_text(
+        "Test card 4111 1111 1111 1111 and invalid 4111 1111 1111 1112"
+    )
+    card_findings = [item for item in result.findings if item.category == "payment_card"]
+    assert len(card_findings) == 1
+
+def test_redacted_preview_uses_real_line_breaks():
+    result = create_default_engine(include_gitleaks=False).inspect_bytes(
+        b"first line\nsecond line", "notes.txt"
+    )
+    assert result.redacted_preview == "[notes.txt]\nfirst line\nsecond line"

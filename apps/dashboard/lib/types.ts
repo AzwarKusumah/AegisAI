@@ -28,9 +28,11 @@ export type ManagedDevice = {
 
 export type PolicyException = {
   name: string;
+  action: "block" | "audit" | "allow";
   categories: string[];
   providers: string[];
   extensions: string[];
+  fingerprints: string[];
 };
 
 export type DlpPolicy = {
@@ -45,6 +47,7 @@ export type DlpPolicy = {
   categories: string[];
   providers: string[];
   extensions: string[];
+  fingerprints: string[];
   exceptions: PolicyException[];
   share_redacted_preview: boolean;
   updated_at?: string;
