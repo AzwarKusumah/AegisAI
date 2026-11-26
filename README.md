@@ -53,6 +53,30 @@ Builds are generated separately:
 
 Load the corresponding directory as an unpacked/temporary extension from the browser's extension developer page. Installation and Native Messaging registration are separate endpoint setup steps; see apps/extension/README.md and agent/rust/README.md.
 
+## Download prebuilt packages from GitHub Actions
+
+GitHub Actions builds the endpoint agent and browser extensions. You do not need Rust or Node.js on the endpoint just to install the downloaded packages.
+
+For every push to main or this feature branch, and for pull requests targeting main:
+
+1. Open the repository's Actions tab.
+2. Select the latest successful **Build endpoint and browser packages** run.
+3. Download the artifacts:
+   - release-extensions: Chromium and Firefox ZIP packages.
+   - release-agent-windows-x86_64: Windows installer bundle.
+   - release-agent-linux-x86_64 and release-agent-linux-aarch64: Linux bundles.
+   - release-agent-macos-x86_64 and release-agent-macos-aarch64: Intel and Apple Silicon macOS bundles.
+4. Verify the download with the matching .sha256 file before installation.
+
+Build artifacts are retained by GitHub Actions for 30 days. When a version tag matching v* is pushed, the same workflow attaches all packages and checksums to a GitHub Release.
+
+For example, after the change is merged and you are ready to publish v0.4.0:
+
+    git tag v0.4.0
+    git push origin v0.4.0
+
+The extension ZIPs contain a loadable unpacked extension package. They are not Chrome Web Store CRX files or Mozilla-signed XPI files; browser-store publication/signing is a separate step.
+
 ## Local inspection flow
 
 1. The user explicitly enables local inspection in the browser extension popup (off by default).

@@ -22,6 +22,16 @@ The generated, loadable extension directories are:
 
 Load the corresponding directory as an unpacked/temporary extension in the browser's developer extension page. The generated folders include their own manifest.json, compiled bundles, and popup assets. Build outputs are generated locally and are not committed.
 
+## Download ready-to-load ZIP packages
+
+GitHub Actions automatically creates:
+- aegisai-extension-chromium.zip — Chrome, Edge, Brave, and Chromium-based browsers.
+- aegisai-extension-firefox.zip — Firefox.
+
+Download them from the **release-extensions** artifact in the latest successful **Build endpoint and browser packages** workflow run, or from a versioned GitHub Release. Extract the archive and load the folder containing manifest.json using the browser's developer extension page.
+
+The ZIPs are loadable extension packages for development/managed unpacked installation. They are not signed CRX/XPI store packages. Chrome Web Store and Mozilla Add-ons signing/publishing require their separate store process.
+
 ## User consent and privacy
 
 Inspection is off by default. The user must enable “Inspect selected AI attachments” in the extension popup. When enabled, the content script reads selected file bytes and streams them in ordered 256 KiB chunks to the local Rust Native Messaging host.
