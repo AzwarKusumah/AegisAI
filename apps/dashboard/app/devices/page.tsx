@@ -110,7 +110,7 @@ export default function DevicesPage() {
             <button className="button buttonSecondary" onClick={() => void navigator.clipboard.writeText(pairing.code)}>Copy code</button>
           </div>
         </div> : <div className="panelFoot">Codes can be used once and are stored as hashes. Choose a lifetime from 1 to 24 hours.</div>}
-        <div className="inlineNote"><strong>Installer</strong><span>Use the AegisAI Windows installer (.exe), then enter the API address and this code. Remote connections should use HTTPS.</span></div>
+        <div className="inlineNote"><strong>Installer</strong><span>Use the self-contained Windows installer (.exe). Enter the public HTTPS URL that serves the Control Plane. The default Docker deployment keeps port 8787 on 127.0.0.1, so do not use the VPS public IP with :8787 unless you have deliberately exposed and secured that port.</span></div>
       </section>
 
       <section className="panel">
