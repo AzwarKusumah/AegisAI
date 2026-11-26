@@ -1,0 +1,193 @@
+name: Build endpoint and browser packages
+
+on:
+  push:
+    branches: [main, feat/platform-foundation-rust-agent]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  extension-packages:
+    name: Package Chromium and Firefox extensions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Build and verify both browsers
+        working-directory: apps/extension
+        run: |
+          npm install --no-audit --no-fund
+          npm run typecheck
+          npm run build
+          npm run test:packages
+      - name: Create installable ZIP packages and checksums
+        working-directory: apps/extension
+        run: |
+          mkdir -p release-assets
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile, ZIP_DEFLATED
+          import hashlib
+
+          root = Path("dist")
+          out = Path("release-assets")
+          for browser in ("chromium", "firefox"):
+              source = root / browser
+              archive = out / f"aegisai-extension-{browser}.zip"
+              with ZipFile(archive, "w", ZIP_DEFLATED, compresslevel=9) as zf:
+                  for item in sorted(source.rglob("*")):
+                      if item.is_file():
+                          zf.write(item, item.relative_to(source))
+              digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+              (out / f"{archive.name}.sha256").write_text(f"{digest}  {archive.name}\n", encoding="utf-8")
+          PY
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-extensions
+          path: |
+            apps/extension/release-assets/*.zip
+            apps/extension/release-assets/*.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+  agent-binaries:
+    name: Build ${{ matrix.package }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: windows-x86_64
+            target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            extension: exe
+            archive: zip
+          - package: linux-x86_64
+            target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            extension: ""
+            archive: tar.gz
+          - package: linux-aarch64
+            target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+            extension: ""
+            archive: tar.gz
+          - package: macos-x86_64
+            target: x86_64-apple-darwin
+            runner: macos-15-intel
+            extension: ""
+            archive: tar.gz
+          - package: macos-aarch64
+            target: aarch64-apple-darwin
+            runner: macos-latest
+            extension: ""
+            archive: tar.gz
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Compile optimized endpoint agent
+        working-directory: agent/rust
+        run: cargo build --release --target ${{ matrix.target }}
+      - name: Check installer syntax
+        if: runner.os == 'Linux' || runner.os == 'macOS'
+        run: bash -n agent/rust/installers/install-unix.sh
+      - name: Check Windows installer syntax
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $script = Get-Content agent/rust/installers/install-windows.ps1 -Raw
+          [void][scriptblock]::Create($script)
+      - name: Assemble endpoint package
+        shell: bash
+        env:
+          PACKAGE_NAME: ${{ matrix.package }}
+          TARGET: ${{ matrix.target }}
+          BINARY_EXTENSION: ${{ matrix.extension }}
+          ARCHIVE_FORMAT: ${{ matrix.archive }}
+        run: |
+          set -euo pipefail
+          bundle="release-package/aegisai-agent-$PACKAGE_NAME"
+          mkdir -p "$bundle/engine"
+          binary="agent/rust/target/$TARGET/release/aegisai-agent"
+          if [[ -n "$BINARY_EXTENSION" ]]; then binary="$binary.${BINARY_EXTENSION}"; fi
+          test -f "$binary"
+          install -m 0755 "$binary" "$bundle/aegisai-agent${BINARY_EXTENSION:+.${BINARY_EXTENSION}}"
+          cp -R engine/aegis_inspector "$bundle/engine/"
+          cp engine/pyproject.toml "$bundle/engine/pyproject.toml"
+          cp agent/rust/installers/README.md "$bundle/README.md"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            cp agent/rust/installers/install-windows.ps1 "$bundle/install-windows.ps1"
+          else
+            cp agent/rust/installers/install-unix.sh "$bundle/install-unix.sh"
+            chmod 0755 "$bundle/install-unix.sh"
+          fi
+          mkdir -p release-assets
+          if [[ "$ARCHIVE_FORMAT" == "zip" ]]; then
+            python - "$bundle" "release-assets/aegisai-agent-$PACKAGE_NAME.zip" <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile, ZIP_DEFLATED
+          import sys
+          source, archive = Path(sys.argv[1]), Path(sys.argv[2])
+          with ZipFile(archive, "w", ZIP_DEFLATED, compresslevel=9) as zf:
+              for item in sorted(source.rglob("*")):
+                  if item.is_file():
+                      zf.write(item, item.relative_to(source.parent))
+          PY
+          else
+            tar -czf "release-assets/aegisai-agent-$PACKAGE_NAME.tar.gz" -C release-package "$(basename "$bundle")"
+          fi
+          python - "release-assets" <<'PY'
+          from pathlib import Path
+          import hashlib, sys
+          folder = Path(sys.argv[1])
+          for archive in sorted(folder.iterdir()):
+              if archive.is_file() and (archive.suffix == ".zip" or archive.name.endswith(".tar.gz")):
+                  digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+                  (folder / (archive.name + ".sha256")).write_text(f"{digest}  {archive.name}\n", encoding="utf-8")
+          PY
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-agent-${{ matrix.package }}
+          path: |
+            release-assets/*.zip
+            release-assets/*.tar.gz
+            release-assets/*.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+  publish-release:
+    name: Attach packages to GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [extension-packages, agent-binaries]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            gh release upload "$TAG_NAME" release-assets/* --clobber
+          else
+            gh release create "$TAG_NAME" release-assets/* --generate-notes --title "$TAG_NAME"
+          fi
