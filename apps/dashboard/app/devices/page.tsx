@@ -85,7 +85,7 @@ export default function DevicesPage() {
           <p>Expires: {new Date(pairing.expires_at).toLocaleString()} · Valid for one enrollment only.</p>
           <button onClick={() => void navigator.clipboard.writeText(pairing.code)}>Copy code</button>
         </div> : <div className="panelFoot">The code is shown once and stored on the server only as a SHA-256 hash. It expires after 10 minutes.</div>}
-        <div className="notice"><strong>Installer connection</strong><span>Use the HTTPS URL that routes <code>/api/v1/*</code> to the AegisAI Control Plane. Do not expose PostgreSQL or the internal admin token to endpoints.</span></div>
+        <div className="notice"><strong>Installer connection</strong><span>Use an HTTPS API URL for remote enrollment, or http://localhost:8787 while forwarding the Control Plane through an SSH tunnel. Never expose PostgreSQL or the internal admin token to endpoints.</span></div>
       </section>
       <section className="panel">
         <div className="panelHead"><div><h2>Registered endpoints</h2><p>Device credentials are unique and can be revoked independently.</p></div><button onClick={() => void load()}>Refresh</button></div>

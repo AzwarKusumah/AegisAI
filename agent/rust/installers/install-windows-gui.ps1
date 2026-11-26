@@ -55,7 +55,7 @@ $browser.SelectedIndex = 0
 $form.Controls.Add($browser)
 Add-Label "Browser Extension ID" 157
 $extensionId = Add-TextBox 180
-Add-Label "Dashboard / Control Plane API URL (HTTPS)" 217
+Add-Label "API URL (HTTPS; HTTP allowed only for localhost tunnel)" 217
 $serverUrl = Add-TextBox 240
 $serverUrl.Text = "https://"
 Add-Label "One-time pairing code (Dashboard > Devices)" 277
@@ -102,7 +102,9 @@ $install.Add_Click({
                 throw "Enter the HTTPS API URL and one-time pairing code, or select local-only testing."
             }
             $uri = [Uri]$serverUrl.Text.Trim()
-            if ($uri.Scheme -ne "https") { throw "The dashboard/API URL must use HTTPS for device enrollment." }
+            if ($uri.Scheme -ne "https" -and -not ($uri.Scheme -eq "http" -and $uri.Host -in @("localhost", "127.0.0.1"))) {
+                throw "Use HTTPS for remote enrollment. HTTP is allowed only for localhost through an SSH tunnel."
+            }
             $installArgs.ControlPlaneUrl = $serverUrl.Text.Trim().TrimEnd("/")
             $installArgs.PairingCode = $pairingCode.Text.Trim()
         } else { $installArgs.ControlPlaneUrl = ""; $installArgs.PairingCode = "" }

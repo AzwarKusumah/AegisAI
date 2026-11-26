@@ -38,7 +38,7 @@ Example Caddy routing (replace the domains with your own):
         reverse_proxy 127.0.0.1:8787
     }
 
-The endpoint installer must receive the API origin (for example, https://api.example.com), not the dashboard's internal Docker hostname. The HTTPS API origin must forward /api/v1/* to the Control Plane. Keep the dashboard and API protected by TLS and firewall rules.
+The endpoint installer must receive the public API origin (for example, https://api.example.com), not the dashboard's internal Docker hostname. The HTTPS API origin must forward /api/v1/* to the Control Plane. For initial testing without a public domain, forward host port 8787 with SSH and use http://localhost:8787 from the endpoint installer; the local-only HTTP exception is accepted only for localhost. Keep public dashboard and API traffic behind TLS and firewall rules.
 
 ## Device enrollment
 
