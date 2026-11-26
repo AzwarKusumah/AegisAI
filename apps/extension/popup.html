@@ -13,7 +13,10 @@
     .brand-name{font-size:15px;font-weight:650;letter-spacing:-.2px}
     .brand-sub{display:block;color:#6c766f;font-size:11px;margin-top:2px}
     .state{display:flex;align-items:center;gap:10px;margin:18px 0 8px}
-    .state-dot{width:9px;height:9px;background:#3c8060;border-radius:50%;box-shadow:0 0 0 3px #3c80601a}
+    .state-dot{width:9px;height:9px;background:#9aa39c;border-radius:50%}
+    .state-dot.stateReady{background:#3c8060;box-shadow:0 0 0 3px #3c80601a}
+    .state-dot.stateLimited{background:#b07b32;box-shadow:0 0 0 3px #b07b321a}
+    .state-dot.stateError{background:#ad554b;box-shadow:0 0 0 3px #ad554b1a}
     .state-title{font-size:14px;font-weight:650}
     p{font-size:12px;line-height:1.6;color:#59645c;margin:8px 0}
     .section{margin-top:17px;padding-top:14px;border-top:1px solid #dfe3de}
@@ -29,8 +32,8 @@
     <div><div class="brand-name">AegisAI</div><span class="brand-sub">Browser protection</span></div>
   </header>
   <section aria-live="polite">
-    <div class="state"><span class="state-dot"></span><span class="state-title">Protection is on</span></div>
-    <p>Attachments are inspected on this device before supported AI pages receive them. Organization policies decide whether a file can continue.</p>
+    <div class="state"><span id="stateDot" class="state-dot stateUnknown"></span><span id="stateTitle" class="state-title">Checking protection</span></div>
+    <p id="stateMessage" role="status" aria-live="polite">Checking the local Agent and Control Plane connection.</p>
   </section>
   <section class="section">
     <div class="section-title">Supported services</div>
@@ -44,5 +47,6 @@
     </div>
   </section>
   <footer class="foot">Original files and detected values stay on this device. The control plane receives inspection results and policy outcomes.</footer>
+  <script src="popup.js"></script>
 </body>
 </html>
