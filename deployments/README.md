@@ -26,6 +26,21 @@ Start and inspect:
 
 Database data remains in the aegisai_postgres named volume. The down -v option deletes this volume; avoid it unless data deletion is intended.
 
+### Temporary direct-IP enrollment over HTTP (testing only)
+
+For a short-lived test without a domain or SSH tunnel, the Control Plane can be bound to the VPS public interfaces. In the server's .env, set:
+
+    AEGIS_CONTROL_PLANE_BIND=0.0.0.0
+    AEGIS_CONTROL_PLANE_PORT=8787
+
+Recreate only the Control Plane container:
+
+    docker compose --env-file .env -f deployments/compose/docker-compose.yml up -d --no-deps --force-recreate control-plane
+
+Allow inbound TCP 8787 in the VPS firewall and provider security group. Keep dashboard port 3000 and PostgreSQL port 5432 private. On the Windows installer, enter http://YOUR_VPS_PUBLIC_IP:8787 and explicitly tick the insecure HTTP testing checkbox.
+
+**Security warning:** HTTP exposes the one-time pairing code and the returned device token to anyone able to observe the network path. Use this only for a controlled temporary test. After testing, revoke the enrolled device token, set AEGIS_CONTROL_PLANE_BIND back to 127.0.0.1, recreate the Control Plane, and switch to HTTPS before normal use.
+
 The dashboard binds to 127.0.0.1:3000 by default. The Control Plane binds to 127.0.0.1:8787 on the host by default, exclusively for a host HTTPS reverse proxy. PostgreSQL is not published. Do not bind the Control Plane to 0.0.0.0 or expose it directly to the internet.
 
 Example Caddy routing (replace the domains with your own):

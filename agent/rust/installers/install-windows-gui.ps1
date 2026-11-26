@@ -5,7 +5,7 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 $form = New-Object System.Windows.Forms.Form
 $form.Text = "AegisAI Endpoint Installer"
-$form.Size = New-Object System.Drawing.Size(600, 570)
+$form.Size = New-Object System.Drawing.Size(600, 615)
 $form.StartPosition = "CenterScreen"
 $form.FormBorderStyle = "FixedDialog"
 $form.MaximizeBox = $false
@@ -55,7 +55,7 @@ $browser.SelectedIndex = 0
 $form.Controls.Add($browser)
 Add-Label "Browser Extension ID" 157
 $extensionId = Add-TextBox 180
-Add-Label "API URL (HTTPS; HTTP allowed only for localhost tunnel)" 217
+Add-Label "API URL (HTTPS recommended; HTTP remote testing requires opt-in)" 217
 $serverUrl = Add-TextBox 240
 $serverUrl.Text = "https://"
 Add-Label "One-time pairing code (Dashboard > Devices)" 277
@@ -71,16 +71,22 @@ $localOnly.Location = New-Object System.Drawing.Point(24, 398)
 $localOnly.Size = New-Object System.Drawing.Size(535, 24)
 $localOnly.ForeColor = [System.Drawing.Color]::FromArgb(190, 205, 222)
 $form.Controls.Add($localOnly)
+$allowInsecureHttp = New-Object System.Windows.Forms.CheckBox
+$allowInsecureHttp.Text = "Allow insecure HTTP to remote VPS (testing only; credentials are unencrypted)"
+$allowInsecureHttp.Location = New-Object System.Drawing.Point(24, 422)
+$allowInsecureHttp.Size = New-Object System.Drawing.Size(555, 34)
+$allowInsecureHttp.ForeColor = [System.Drawing.Color]::FromArgb(230, 170, 105)
+$form.Controls.Add($allowInsecureHttp)
 $install = New-Object System.Windows.Forms.Button
 $install.Text = "Install and pair device"
-$install.Location = New-Object System.Drawing.Point(24, 435)
+$install.Location = New-Object System.Drawing.Point(24, 465)
 $install.Size = New-Object System.Drawing.Size(180, 34)
 $install.FlatStyle = "Flat"
 $install.BackColor = [System.Drawing.Color]::FromArgb(20, 100, 117)
 $install.ForeColor = [System.Drawing.Color]::White
 $form.Controls.Add($install)
 $log = New-Object System.Windows.Forms.TextBox
-$log.Location = New-Object System.Drawing.Point(216, 435)
+$log.Location = New-Object System.Drawing.Point(216, 465)
 $log.Size = New-Object System.Drawing.Size(328, 76)
 $log.Multiline = $true
 $log.ReadOnly = $true
@@ -102,11 +108,13 @@ $install.Add_Click({
                 throw "Enter the HTTPS API URL and one-time pairing code, or select local-only testing."
             }
             $uri = [Uri]$serverUrl.Text.Trim()
-            if ($uri.Scheme -ne "https" -and -not ($uri.Scheme -eq "http" -and $uri.Host -in @("localhost", "127.0.0.1"))) {
-                throw "Use HTTPS for remote enrollment. HTTP is allowed only for localhost through an SSH tunnel."
+            $isLocalHttp = $uri.Scheme -eq "http" -and $uri.Host -in @("localhost", "127.0.0.1")
+            if ($uri.Scheme -notin @("https", "http") -or ($uri.Scheme -eq "http" -and -not $isLocalHttp -and -not $allowInsecureHttp.Checked)) {
+                throw "For a remote VPS, use HTTPS. For temporary IP-based testing only, enable the insecure HTTP checkbox; the pairing code and device token will be transmitted without encryption."
             }
             $installArgs.ControlPlaneUrl = $serverUrl.Text.Trim().TrimEnd("/")
             $installArgs.PairingCode = $pairingCode.Text.Trim()
+            if ($allowInsecureHttp.Checked) { $installArgs.AllowInsecureHttp = $true }
         } else { $installArgs.ControlPlaneUrl = ""; $installArgs.PairingCode = "" }
 
         $log.AppendText("Starting per-user installation..." + [Environment]::NewLine)

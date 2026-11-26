@@ -8,7 +8,8 @@ param(
     [string]$ExtensionId = "",
     [string]$ControlPlaneUrl = "",
     [string]$PairingCode = "",
-    [string]$AgentToken = ""
+    [string]$AgentToken = "",
+    [switch]$AllowInsecureHttp
 )
 $ErrorActionPreference = "Stop"
 
@@ -64,8 +65,9 @@ if ([string]::IsNullOrWhiteSpace($ControlPlaneUrl) -xor [string]::IsNullOrWhiteS
 }
 if (-not [string]::IsNullOrWhiteSpace($ControlPlaneUrl)) {
     $parsedUrl = [Uri]$ControlPlaneUrl
-    if (-not $parsedUrl.IsAbsoluteUri -or ($parsedUrl.Scheme -ne "https" -and $parsedUrl.Host -notin @("localhost", "127.0.0.1"))) {
-        throw "The dashboard/control-plane URL must use HTTPS (HTTP is permitted only for localhost testing)."
+    $isLocalHttp = $parsedUrl.Scheme -eq "http" -and $parsedUrl.Host -in @("localhost", "127.0.0.1")
+    if (-not $parsedUrl.IsAbsoluteUri -or $parsedUrl.Scheme -notin @("https", "http") -or ($parsedUrl.Scheme -eq "http" -and -not $isLocalHttp -and -not $AllowInsecureHttp)) {
+        throw "Remote enrollment requires HTTPS. To use plain HTTP on a remote VPS, explicitly pass -AllowInsecureHttp for testing only; pairing codes and device tokens will be unencrypted."
     }
     if ($PairingCode -notmatch '^[a-fA-F0-9]{32}$') {
         throw "Pairing code must be the 32-character one-time code from Dashboard > Devices."
