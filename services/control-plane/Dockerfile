@@ -1,6 +1,6 @@
 FROM golang:1.23-alpine AS build
 WORKDIR /src/services/control-plane
-COPY services/control-plane/go.mod services/control-plane/go.sum ./
+COPY services/control-plane/go.mod ./
 RUN go mod download
 COPY services/control-plane/ ./
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/aegisai-control-plane ./cmd/server

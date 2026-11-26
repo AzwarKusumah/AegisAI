@@ -167,7 +167,7 @@ setup_systemd() {
   fi
 
   if ! id aegisai >/dev/null 2>&1; then
-    useradd --system --home-dir /var/lib/aegisai --create-home --shell /usr/sbin/nologin aegisai
+    useradd --system --user-group --home-dir /var/lib/aegisai --create-home --shell /usr/sbin/nologin aegisai
   fi
 
   install -d -o root -g aegisai -m 0750 /etc/aegisai
@@ -191,7 +191,7 @@ setup_systemd() {
     echo "Next.js standalone output is missing; check the dashboard build logs." >&2
     exit 1
   }
-  rm -rf /opt/aegisai/dashboard/*
+  find /opt/aegisai/dashboard -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
   cp -a "$ROOT/apps/dashboard/.next/standalone/." /opt/aegisai/dashboard/
   install -d -o aegisai -g aegisai -m 0750 /opt/aegisai/dashboard/.next/cache
   cp -a "$ROOT/apps/dashboard/.next/static" /opt/aegisai/dashboard/.next/static
