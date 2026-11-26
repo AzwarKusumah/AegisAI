@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strconv"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/AzwarKusumah/AegisAI/services/control-plane/internal/events"
+	controlstore "github.com/AzwarKusumah/AegisAI/services/control-plane/internal/store"
 )
 
 type repository interface {
@@ -98,7 +100,12 @@ func (s *Server) enrollAgent(w http.ResponseWriter, r *http.Request) {
 	token, err := randomHex(32); if err != nil { http.Error(w, "could not create device credential", http.StatusInternalServerError); return }
 	device := events.DeviceRecord{DeviceID: input.DeviceID, Hostname: input.Hostname, OS: input.OS, Username: input.Username, Status: "active"}
 	if err := store.EnrollDevice(r.Context(), hashSecret(input.PairingCode), device, hashSecret(token)); err != nil {
-		http.Error(w, "pairing code invalid, expired, or already used", http.StatusUnauthorized); return
+		if errors.Is(err, controlstore.ErrInvalidPairingCode) {
+			http.Error(w, "pairing code invalid, expired, or already used", http.StatusUnauthorized)
+		} else {
+			http.Error(w, "device enrollment failed", http.StatusInternalServerError)
+		}
+		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"device_id": input.DeviceID, "agent_token": token, "status": "enrolled"})
 }

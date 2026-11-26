@@ -10,9 +10,24 @@ function matches(provided: string, expected: string): boolean {
   return left.length === right.length && timingSafeEqual(left, right);
 }
 
+function isSameOrigin(request: Request, origin: string): boolean {
+  try {
+    const supplied = new URL(origin);
+    const requestUrl = new URL(request.url);
+    const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0].trim();
+    const expectedHost = forwardedHost || request.headers.get("host") || requestUrl.host;
+    const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0].trim();
+    const expectedProtocol = forwardedProto || requestUrl.protocol.replace(/:$/, "");
+    return supplied.host.toLowerCase() === expectedHost.toLowerCase() &&
+      supplied.protocol === expectedProtocol + ":";
+  } catch {
+    return false;
+  }
+}
+
 export async function POST(request: Request) {
   const origin = request.headers.get("origin");
-  if (origin && origin !== new URL(request.url).origin) {
+  if (origin && !isSameOrigin(request, origin)) {
     return NextResponse.json({ error: "invalid_origin" }, { status: 403 });
   }
   const username = process.env.AEGIS_DASHBOARD_USER ?? "";

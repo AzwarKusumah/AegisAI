@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/AzwarKusumah/AegisAI/services/control-plane/internal/events"
+	controlstore "github.com/AzwarKusumah/AegisAI/services/control-plane/internal/store"
 )
 
 type memoryRepository struct {
@@ -35,7 +36,7 @@ func (m *memoryRepository) CreatePairingCode(_ context.Context, hash string, exp
 }
 func (m *memoryRepository) EnrollDevice(_ context.Context, codeHash string, device events.DeviceRecord, tokenHash string) error {
 	expiry, ok := m.pairingCodes[codeHash]
-	if !ok || time.Now().After(expiry) { return errors.New("invalid pairing code") }
+	if !ok || time.Now().After(expiry) { return controlstore.ErrInvalidPairingCode }
 	delete(m.pairingCodes, codeHash)
 	device.Status = "active"
 	device.EnrolledAt = time.Now().UTC()
