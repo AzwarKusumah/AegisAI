@@ -85,7 +85,7 @@ if (-not (Test-Path $venvPython)) {
     & $pythonExe -m venv $venvDirectory
     if ($LASTEXITCODE -ne 0) { throw "Could not create the local Python virtual environment." }
 }
-& $venvPython -m pip install --disable-pip-version-check -e "$EnginePath[documents]"
+& $venvPython -m pip install --disable-pip-version-check -e "${EnginePath}[documents]"
 if ($LASTEXITCODE -ne 0) { throw "Could not install AegisAI document inspection dependencies." }
 
 $manifestDirectory = Join-Path $env:LOCALAPPDATA "AegisAI"
