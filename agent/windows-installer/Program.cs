@@ -181,6 +181,64 @@ internal sealed class InstallerForm : Form
         catch (Exception error) { MessageBox.Show(this, error.Message, "Could not open browser", MessageBoxButtons.OK, MessageBoxIcon.Error); }
     }
 
+    private static async Task EnsureControlPlaneReachableAsync(HttpClient client, Uri api)
+    {
+        var healthUri = new Uri(api.ToString().TrimEnd('/') + "/healthz");
+        HttpResponseMessage response;
+
+        try
+        {
+            response = await client.GetAsync(healthUri);
+        }
+        catch (TaskCanceledException error)
+        {
+            throw new InvalidOperationException(
+                "The Control Plane did not answer /healthz within 8 seconds. In the default Docker deployment, " +
+                "port 8787 is published on 127.0.0.1 and cannot be reached directly through the VPS public IP. " +
+                "Enter the public HTTPS reverse-proxy URL (for example https://dlp.example.com), and make sure " +
+                "it forwards /healthz and /api/v1/* to the Control Plane. Also check the VPS firewall and cloud " +
+                "security group. This check runs before enrollment, so your pairing code has not been consumed.",
+                error);
+        }
+        catch (HttpRequestException error)
+        {
+            throw new InvalidOperationException(
+                "Could not establish a connection to the Control Plane. Check the public HTTPS URL, DNS, " +
+                "reverse-proxy routing, VPS firewall, and TLS certificate. Use the HTTPS reverse-proxy hostname " +
+                "rather than the internal Control Plane port unless you deliberately exposed and secured that port. " +
+                "The pairing code has not been consumed.",
+                error);
+        }
+
+        using (response)
+        {
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new InvalidOperationException(
+                    "The API URL responded to /healthz with HTTP " + (int)response.StatusCode +
+                    ". Enter the Control Plane URL (not the Dashboard URL) and route /healthz to the Control Plane.");
+            }
+
+            var body = await response.Content.ReadAsStringAsync();
+            try
+            {
+                using var health = JsonDocument.Parse(body);
+                if (!health.RootElement.TryGetProperty("status", out var statusValue) ||
+                    statusValue.GetString() != "ok")
+                {
+                    throw new InvalidOperationException("The URL is reachable but did not return a healthy AegisAI Control Plane response.");
+                }
+            }
+            catch (JsonException error)
+            {
+                throw new InvalidOperationException(
+                    "The URL is reachable but /healthz did not return the AegisAI Control Plane health response. " +
+                    "Check that the reverse proxy points to port 8787 rather than the Dashboard.",
+                    error);
+            }
+        }
+    }
+
     private async Task InstallAndEnrollAsync()
     {
         install.Enabled = false;
@@ -220,8 +278,11 @@ internal sealed class InstallerForm : Form
                 await File.WriteAllTextAsync(deviceIdPath, deviceId, new UTF8Encoding(false));
             }
 
+            status.Text = "Checking Control Plane connectivity…";
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+            await EnsureControlPlaneReachableAsync(client, api);
+
             status.Text = "Requesting device enrollment…";
-            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
             var request = new {
                 pairing_code = code,
                 device_id = deviceId,
