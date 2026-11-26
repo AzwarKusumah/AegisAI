@@ -107,7 +107,7 @@ def _redact_preview(text: str, findings: tuple[Finding, ...], limit: int = 1400)
 
 class PaymentCardDetector:
     name = "builtin-payment-card"
-    CANDIDATE = re.compile(r"(?<!\\d)\\d(?:[ -]?\\d){12,18}(?!\\d)")
+    CANDIDATE = re.compile(r"(?<!\d)\d(?:[ -]?\d){12,18}(?!\d)")
 
     @staticmethod
     def _luhn_valid(digits: str) -> bool:
