@@ -40,6 +40,8 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    ports:
+      - "127.0.0.1:${AEGIS_CONTROL_PLANE_PORT:-8787}:8787"
     expose:
       - "8787"
 

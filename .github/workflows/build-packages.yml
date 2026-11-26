@@ -108,6 +108,8 @@ jobs:
         run: |
           $script = Get-Content agent/rust/installers/install-windows.ps1 -Raw
           [void][scriptblock]::Create($script)
+          $guiScript = Get-Content agent/rust/installers/install-windows-gui.ps1 -Raw
+          [void][scriptblock]::Create($guiScript)
       - name: Assemble endpoint package
         shell: bash
         env:
@@ -128,6 +130,7 @@ jobs:
           cp agent/rust/installers/README.md "$bundle/README.md"
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             cp agent/rust/installers/install-windows.ps1 "$bundle/install-windows.ps1"
+            cp agent/rust/installers/install-windows-gui.ps1 "$bundle/install-windows-gui.ps1"
           else
             cp agent/rust/installers/install-unix.sh "$bundle/install-unix.sh"
             chmod 0755 "$bundle/install-unix.sh"

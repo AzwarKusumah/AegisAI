@@ -11,3 +11,13 @@ export type SecurityEvent = {
   outcome: string;
   enforcement: { confirmed: boolean; component: string };
 };
+
+export type ManagedDevice = {
+  device_id: string;
+  hostname: string;
+  os: string;
+  username: string;
+  status: "active" | "revoked" | string;
+  enrolled_at: string;
+  last_seen_at: string | null;
+};

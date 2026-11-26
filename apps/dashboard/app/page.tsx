@@ -15,17 +15,13 @@ function actorLabel(event: SecurityEvent) {
   return event.actor.username + " · unresolved";
 }
 function inspectionLabel(event: SecurityEvent) {
-  if (event.inspection.status === "completed") {
-    return event.inspection.categories.length > 0 ? "Findings detected" : "No matches";
-  }
+  if (event.inspection.status === "completed") return event.inspection.categories.length > 0 ? "Findings detected" : "No matches";
   if (event.inspection.status === "failed") return "Inspection failed";
   if (event.inspection.status === "partial") return "Partially inspected";
   return "Not inspected";
 }
 function riskLabel(event: SecurityEvent) {
-  return event.inspection.status === "completed" || event.inspection.status === "partial"
-    ? event.inspection.risk_score + "/100"
-    : "N/A";
+  return event.inspection.status === "completed" || event.inspection.status === "partial" ? event.inspection.risk_score + "/100" : "N/A";
 }
 function riskClass(event: SecurityEvent) {
   if (event.inspection.status === "failed") return "red";
@@ -37,7 +33,6 @@ export default function Home() {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("Loading");
   const [selected, setSelected] = useState<SecurityEvent | null>(null);
-
   async function load(search = query) {
     setStatus("Loading");
     try {
@@ -62,16 +57,19 @@ export default function Home() {
   return <main className="shell">
     <aside className="sidebar">
       <div className="brand"><span className="brandMark">A</span><span>AegisAI<small>SECURITY CONSOLE</small></span></div>
-      <div className="navItem active">Overview</div><div className="navItem">Security events</div>
-      <div className="navItem disabled">Policies <small>Later</small></div><div className="navItem disabled">Devices <small>Later</small></div>
+      <a className="navItem active" href="/">Overview</a>
+      <a className="navItem" href="/files">File inventory</a>
+      <a className="navItem" href="/devices">Devices</a>
+      <div className="navItem disabled">Policies <small>Next phase</small></div>
       <div className="sidebarFoot">SELF-HOSTED CONTROL PLANE<br/>EARLY ACCESS BUILD</div>
+      <form action="/api/auth/logout" method="post"><button className="logoutButton">Sign out</button></form>
     </aside>
     <section className="content">
       <header className="topbar">
         <div><p className="eyebrow">MONITORING / AI DATA EXPOSURE</p><h1>Security overview</h1><p className="subhead">Local inspection results for files selected on supported AI services.</p></div>
         <div className={"connection " + (status === "Connected" ? "online" : "offline")}><i />{status}</div>
       </header>
-      <div className="notice"><strong>Detection mode</strong><span>Selected file bytes are scanned locally only when the extension is enabled. The server receives metadata and findings categories, never file contents. This version does not block provider uploads.</span></div>
+      <div className="notice"><strong>Detection mode</strong><span>Selected file bytes are scanned locally only when the extension is enabled. The server receives metadata and findings categories, never file contents. This version displays alerts but does not block provider uploads.</span></div>
       <div className="stats">
         <article className="stat"><span>Observed events</span><strong>{stats.observed}</strong><small>Selected attachment activity</small></article>
         <article className="stat"><span>Confirmed prevented</span><strong>{stats.prevented}</strong><small>Requires independent enforcement evidence</small></article>
@@ -93,7 +91,7 @@ export default function Home() {
             <td><span className="risk">{riskLabel(event)}</span><small>{event.inspection.severity}</small></td>
             <td><span className="time">{new Date(event.occurred_at).toLocaleString()}</span></td>
           </tr>)}
-          {events.length === 0 && <tr><td colSpan={6} className="empty">No events yet. Enable local inspection in the browser extension and select a file on a supported AI page.</td></tr>}</tbody>
+          {events.length === 0 && <tr><td colSpan={6} className="empty">No events yet. Enroll an endpoint from Devices and enable inspection in the browser extension.</td></tr>}</tbody>
         </table></div>
         <div className="panelFoot">Up to 100 recent events · Raw file contents and matched values are never stored in this dashboard.</div>
       </section>
