@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AegisAI Protection</title>
+  <style>
+    :root{color-scheme:light;font-family:"Segoe UI",Arial,sans-serif;background:#f8f8f5;color:#202823}
+    *{box-sizing:border-box}
+    body{width:324px;margin:0;padding:20px}
+    .brand{display:flex;align-items:center;gap:10px;padding-bottom:17px;border-bottom:1px solid #dfe3de}
+    .mark{width:30px;height:30px;display:grid;place-items:center;background:#243d34;color:#f8f8f5;font-size:15px;font-weight:700}
+    .brand-name{font-size:15px;font-weight:650;letter-spacing:-.2px}
+    .brand-sub{display:block;color:#6c766f;font-size:11px;margin-top:2px}
+    .state{display:flex;align-items:center;gap:10px;margin:18px 0 8px}
+    .state-dot{width:9px;height:9px;background:#9aa39c;border-radius:50%}
+    .state-dot.stateReady{background:#3c8060;box-shadow:0 0 0 3px #3c80601a}
+    .state-dot.stateLimited{background:#b07b32;box-shadow:0 0 0 3px #b07b321a}
+    .state-dot.stateError{background:#ad554b;box-shadow:0 0 0 3px #ad554b1a}
+    .state-title{font-size:14px;font-weight:650}
+    p{font-size:12px;line-height:1.6;color:#59645c;margin:8px 0}
+    .section{margin-top:17px;padding-top:14px;border-top:1px solid #dfe3de}
+    .section-title{font-size:11px;color:#6c766f;margin-bottom:10px}
+    .sites{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px}
+    .site{font-size:12px;color:#29352e}
+    .foot{margin-top:18px;padding-top:12px;border-top:1px solid #dfe3de;font-size:11px;color:#6c766f;line-height:1.55}
+  </style>
+</head>
+<body>
+  <header class="brand">
+    <div class="mark" aria-hidden="true">A</div>
+    <div><div class="brand-name">AegisAI</div><span class="brand-sub">Browser protection</span></div>
+  </header>
+  <section aria-live="polite">
+    <div class="state"><span id="stateDot" class="state-dot stateUnknown"></span><span id="stateTitle" class="state-title">Checking protection</span></div>
+    <p id="stateMessage" role="status" aria-live="polite">Checking the local Agent and Control Plane connection.</p>
+  </section>
+  <section class="section">
+    <div class="section-title">Supported services</div>
+    <div class="sites">
+      <span class="site">ChatGPT</span>
+      <span class="site">Claude</span>
+      <span class="site">Gemini</span>
+      <span class="site">Microsoft Copilot</span>
+      <span class="site">Perplexity</span>
+      <span class="site">Grok</span>
+    </div>
+  </section>
+  <footer class="foot">Original files and detected values stay on this device. The control plane receives inspection results and policy outcomes.</footer>
+  <script src="popup.js"></script>
+</body>
+</html>

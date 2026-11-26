@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aegisai-inspector"
+version = "0.1.0"
+description = "Local-first AegisAI content inspection engine"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+documents = ["pypdf>=5,<6", "python-docx>=1.1,<2", "openpyxl>=3.1,<4"]
+dev = ["pytest>=8,<10", "pypdf>=5,<6", "python-docx>=1.1,<2", "openpyxl>=3.1,<4"]
+
+[project.scripts]
+aegis-inspect = "aegis_inspector.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["aegis_inspector*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

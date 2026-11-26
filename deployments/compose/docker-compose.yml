@@ -1,0 +1,78 @@
+name: aegisai
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?Run the AegisAI setup TUI first}
+      POSTGRES_USER: ${POSTGRES_USER:?Run the AegisAI setup TUI first}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run the AegisAI setup TUI first}
+    volumes:
+      - aegisai_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+
+  control-plane:
+    build:
+      context: ../..
+      dockerfile: services/control-plane/Dockerfile
+    image: aegisai/control-plane:local
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Run the AegisAI setup TUI first}
+      AEGIS_AGENT_TOKEN: ${AEGIS_AGENT_TOKEN:?Missing AEGIS_AGENT_TOKEN}
+      AEGIS_ADMIN_TOKEN: ${AEGIS_ADMIN_TOKEN:?Missing AEGIS_ADMIN_TOKEN}
+      AEGIS_LISTEN_ADDR: 0.0.0.0:8787
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    ports:
+      - "${AEGIS_CONTROL_PLANE_BIND:-127.0.0.1}:${AEGIS_CONTROL_PLANE_PORT:-8787}:8787"
+    expose:
+      - "8787"
+
+  dashboard:
+    build:
+      context: ../..
+      dockerfile: apps/dashboard/Dockerfile
+    image: aegisai/dashboard:local
+    restart: unless-stopped
+    init: true
+    environment:
+      AEGIS_API_URL: http://control-plane:8787
+      AEGIS_ADMIN_TOKEN: ${AEGIS_ADMIN_TOKEN:?Missing AEGIS_ADMIN_TOKEN}
+      AEGIS_DASHBOARD_USER: ${AEGIS_DASHBOARD_USER:?Missing AEGIS_DASHBOARD_USER}
+      AEGIS_DASHBOARD_PASSWORD: ${AEGIS_DASHBOARD_PASSWORD:?Missing AEGIS_DASHBOARD_PASSWORD}
+      HOSTNAME: 0.0.0.0
+      PORT: ${AEGIS_DASHBOARD_PORT:-3000}
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
+    depends_on:
+      - control-plane
+    ports:
+      - "${AEGIS_DASHBOARD_BIND:-127.0.0.1}:${AEGIS_DASHBOARD_PORT:-3000}:${AEGIS_DASHBOARD_PORT:-3000}"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+      - /app/.next/cache:rw,noexec,nosuid,size=64m,uid=1001,gid=1001,mode=0750
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  aegisai_postgres:

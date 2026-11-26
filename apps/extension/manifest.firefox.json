@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "AegisAI Protection",
+  "version": "0.5.0",
+  "description": "Applies local data-protection policies to file attachments on supported AI services.",
+  "permissions": ["nativeMessaging"],
+  "host_permissions": [
+    "https://chatgpt.com/*", "https://claude.ai/*", "https://gemini.google.com/*",
+    "https://copilot.microsoft.com/*", "https://perplexity.ai/*", "https://grok.com/*"
+  ],
+  "action": { "default_popup": "popup.html" },
+  "background": { "scripts": ["background.js"] },
+  "content_scripts": [{
+    "matches": [
+      "https://chatgpt.com/*", "https://claude.ai/*", "https://gemini.google.com/*",
+      "https://copilot.microsoft.com/*", "https://perplexity.ai/*", "https://grok.com/*"
+    ],
+    "js": ["content.js"],
+    "run_at": "document_start"
+  }],
+  "browser_specific_settings": {
+    "gecko": { "id": "aegisai@example.invalid" }
+  }
+}

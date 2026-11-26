@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aegisai.dev/contracts/events/security-event.schema.json",
+  "title": "AegisAI Security Event",
+  "description": "Metadata event. Original files and matched values are forbidden; an optional redacted preview may be included by explicit policy.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["event_id", "occurred_at", "actor", "device", "provider", "provider_domain", "event_type", "file", "inspection", "outcome", "enforcement"],
+  "properties": {
+    "event_id": {"type": "string", "format": "uuid"},
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "actor": {
+      "type": "object", "additionalProperties": false,
+      "required": ["username", "identity_source"],
+      "properties": {
+        "user_id": {"type": ["string", "null"]},
+        "username": {"type": "string", "minLength": 1, "maxLength": 128},
+        "identity_source": {"type": "string", "enum": ["local_os_account", "enterprise_sso", "unresolved"]}
+      }
+    },
+    "device": {
+      "type": "object", "additionalProperties": false,
+      "required": ["device_id", "hostname", "os"],
+      "properties": {
+        "device_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "hostname": {"type": "string", "minLength": 1, "maxLength": 255},
+        "os": {"type": "string", "enum": ["windows", "linux", "macos", "unknown"]}
+      }
+    },
+    "provider": {"type": "string", "minLength": 1, "maxLength": 64},
+    "provider_domain": {"type": "string", "minLength": 1, "maxLength": 253},
+    "event_type": {"type": "string", "enum": ["attachment_selected", "send_action_observed", "inspection_completed", "upload_prevented", "unknown"]},
+    "file": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "extension", "mime_type", "size_bytes"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 255},
+        "extension": {"type": "string", "maxLength": 32},
+        "mime_type": {"type": "string", "maxLength": 127},
+        "size_bytes": {"type": "integer", "minimum": 0, "maximum": 1073741824}
+      }
+    },
+    "inspection": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "risk_score", "severity", "categories"],
+      "properties": {
+        "status": {"type": "string", "enum": ["not_inspected", "completed", "partial", "failed"]},
+        "risk_score": {"type": "integer", "minimum": 0, "maximum": 100},
+        "severity": {"type": "string", "enum": ["none", "low", "medium", "high", "critical"]},
+        "categories": {"type": "array", "items": {"type": "string", "maxLength": 64}, "maxItems": 50, "uniqueItems": true}
+      }
+    },
+    "policy_id": {"type": "string", "maxLength": 80},
+    "policy_name": {"type": "string", "maxLength": 120},
+    "policy_action": {"type": "string", "enum": ["block", "audit", "allow"]},
+    "redacted_preview": {"type": "string", "maxLength": 16000, "description": "Optional short preview with detected spans redacted locally; may still contain other confidential context."},
+    "outcome": {"type": "string", "enum": ["observed", "prevented", "unknown"]},
+    "enforcement": {
+      "type": "object", "additionalProperties": false,
+      "required": ["confirmed", "component"],
+      "properties": {
+        "confirmed": {"type": "boolean"},
+        "component": {"type": "string", "enum": ["none", "browser", "agent", "network_gateway"]}
+      }
+    }
+  }
+}

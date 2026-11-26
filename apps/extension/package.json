@@ -1,0 +1,17 @@
+{
+  "name": "@aegisai/extension",
+  "version": "0.5.0",
+  "private": true,
+  "scripts": {
+    "build": "node scripts/build.mjs all",
+    "build:chromium": "node scripts/build.mjs chromium",
+    "build:firefox": "node scripts/build.mjs firefox",
+    "test:packages": "node scripts/verify-packages.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.287",
+    "esbuild": "^0.24.2",
+    "typescript": "^5.7.2"
+  }
+}
