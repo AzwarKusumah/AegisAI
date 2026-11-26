@@ -238,7 +238,10 @@ fn scan_local_file(filename: &str, bytes: &[u8]) -> Result<Inspection> {
         risk_score: report.risk_score.min(100),
         severity,
         categories,
-        redacted_preview: report.redacted_preview.filter(|value| !value.trim().is_empty()).map(|value| value.chars().take(4000).collect()),
+        redacted_preview: report
+            .redacted_preview
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| value.chars().take(4000).collect()),
     })
 }
 
@@ -506,7 +509,9 @@ fn handle_message(
             }
             if !blocked && result.decision.action == "block" {
                 *completed = Some(result);
-                return Err(anyhow!("browser cannot continue an upload that policy blocked"));
+                return Err(anyhow!(
+                    "browser cannot continue an upload that policy blocked"
+                ));
             }
             if blocked {
                 result.event.event_type = "upload_prevented".into();

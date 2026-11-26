@@ -71,11 +71,18 @@ fn exception_matches(
     categories: &[String],
 ) -> bool {
     (!exception.categories.is_empty()
-        && exception.categories.iter().any(|wanted| categories.iter().any(|found| found == wanted)))
+        && exception
+            .categories
+            .iter()
+            .any(|wanted| categories.iter().any(|found| found == wanted)))
         || (!exception.providers.is_empty()
             && exception.providers.iter().any(|wanted| wanted == provider))
         || (!exception.extensions.is_empty()
-            && exception.extensions.iter().any(|wanted| wanted.trim_start_matches('.').eq_ignore_ascii_case(extension)))
+            && exception.extensions.iter().any(|wanted| {
+                wanted
+                    .trim_start_matches('.')
+                    .eq_ignore_ascii_case(extension)
+            }))
 }
 
 fn policy_matches(
@@ -89,7 +96,11 @@ fn policy_matches(
     if !policy.enabled || !matches!(policy.action.as_str(), "block" | "audit" | "allow") {
         return false;
     }
-    if policy.exceptions.iter().any(|exception| exception_matches(exception, provider, extension, categories)) {
+    if policy
+        .exceptions
+        .iter()
+        .any(|exception| exception_matches(exception, provider, extension, categories))
+    {
         return false;
     }
     if !policy.min_severity.is_empty()
@@ -101,7 +112,10 @@ fn policy_matches(
         return false;
     }
     if !policy.categories.is_empty()
-        && !policy.categories.iter().any(|wanted| categories.iter().any(|found| found == wanted))
+        && !policy
+            .categories
+            .iter()
+            .any(|wanted| categories.iter().any(|found| found == wanted))
     {
         return false;
     }
@@ -109,7 +123,11 @@ fn policy_matches(
         return false;
     }
     if !policy.extensions.is_empty()
-        && !policy.extensions.iter().any(|wanted| wanted.trim_start_matches('.').eq_ignore_ascii_case(extension))
+        && !policy.extensions.iter().any(|wanted| {
+            wanted
+                .trim_start_matches('.')
+                .eq_ignore_ascii_case(extension)
+        })
     {
         return false;
     }
@@ -135,7 +153,11 @@ pub fn evaluate(
         };
     }
 
-    let mut ordered = bundle.policies.iter().filter(|item| item.enabled).collect::<Vec<_>>();
+    let mut ordered = bundle
+        .policies
+        .iter()
+        .filter(|item| item.enabled)
+        .collect::<Vec<_>>();
     ordered.sort_by_key(|item| item.priority);
     for item in ordered {
         if policy_matches(item, provider, extension, severity, risk_score, categories) {
@@ -153,7 +175,12 @@ pub fn evaluate(
         action: "allow".into(),
         policy_id: None,
         policy_name: None,
-        reason: if inspection_complete { "no_policy_match" } else { "inspection_incomplete_fail_open" }.into(),
+        reason: if inspection_complete {
+            "no_policy_match"
+        } else {
+            "inspection_incomplete_fail_open"
+        }
+        .into(),
         share_redacted_preview: false,
     }
 }
@@ -181,16 +208,38 @@ mod tests {
 
     #[test]
     fn first_matching_priority_decides() {
-        let bundle = PolicyBundle { policies: vec![policy("allow", 20), policy("block", 10)], fail_closed: true };
-        let decision = evaluate(&bundle, "chatgpt", "pdf", true, "critical", 100, &["cloud_credential".into()]);
+        let bundle = PolicyBundle {
+            policies: vec![policy("allow", 20), policy("block", 10)],
+            fail_closed: true,
+        };
+        let decision = evaluate(
+            &bundle,
+            "chatgpt",
+            "pdf",
+            true,
+            "critical",
+            100,
+            &["cloud_credential".into()],
+        );
         assert_eq!(decision.action, "block");
         assert_eq!(decision.policy_id.as_deref(), Some("policy-10"));
     }
 
     #[test]
     fn provider_and_file_constraints_are_applied() {
-        let bundle = PolicyBundle { policies: vec![policy("block", 10)], fail_closed: true };
-        let decision = evaluate(&bundle, "claude", "pdf", true, "critical", 100, &["cloud_credential".into()]);
+        let bundle = PolicyBundle {
+            policies: vec![policy("block", 10)],
+            fail_closed: true,
+        };
+        let decision = evaluate(
+            &bundle,
+            "claude",
+            "pdf",
+            true,
+            "critical",
+            100,
+            &["cloud_credential".into()],
+        );
         assert_eq!(decision.action, "allow");
     }
 
@@ -204,15 +253,29 @@ mod tests {
             providers: vec!["chatgpt".into()],
             extensions: vec![],
         }];
-        let bundle = PolicyBundle { policies: vec![block], fail_closed: true };
-        let decision = evaluate(&bundle, "chatgpt", "pdf", true, "critical", 100, &["cloud_credential".into()]);
+        let bundle = PolicyBundle {
+            policies: vec![block],
+            fail_closed: true,
+        };
+        let decision = evaluate(
+            &bundle,
+            "chatgpt",
+            "pdf",
+            true,
+            "critical",
+            100,
+            &["cloud_credential".into()],
+        );
         assert_eq!(decision.action, "allow");
         assert_eq!(decision.reason, "no_policy_match");
     }
 
     #[test]
     fn failed_inspection_is_blocked_when_fail_closed() {
-        let bundle = PolicyBundle { policies: vec![], fail_closed: true };
+        let bundle = PolicyBundle {
+            policies: vec![],
+            fail_closed: true,
+        };
         let decision = evaluate(&bundle, "chatgpt", "pdf", false, "none", 0, &[]);
         assert_eq!(decision.action, "block");
         assert_eq!(decision.reason, "inspection_failed_fail_closed");
