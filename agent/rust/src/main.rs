@@ -12,8 +12,8 @@ use protocol::{
     SecurityEvent, CHUNK_SIZE, MAX_FILE_SIZE,
 };
 use serde::Deserialize;
-use sha2::{Digest, Sha256};
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use std::io::{stdin, stdout, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -318,8 +318,9 @@ fn fetch_policy_bundle() -> Result<Option<PolicyBundle>> {
         Some(value) => value.trim_end_matches('/').to_owned(),
         None => return Ok(None),
     };
-    let token = setting("AEGIS_AGENT_TOKEN")
-        .ok_or_else(|| anyhow!("device token is missing while remote policy service is configured"))?;
+    let token = setting("AEGIS_AGENT_TOKEN").ok_or_else(|| {
+        anyhow!("device token is missing while remote policy service is configured")
+    })?;
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
         .build()?;

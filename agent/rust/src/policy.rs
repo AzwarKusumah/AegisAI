@@ -109,7 +109,11 @@ fn exception_matches(
     }
     if !exception.fingerprints.is_empty() {
         has_condition = true;
-        if !exception.fingerprints.iter().any(|wanted| wanted.eq_ignore_ascii_case(fingerprint)) {
+        if !exception
+            .fingerprints
+            .iter()
+            .any(|wanted| wanted.eq_ignore_ascii_case(fingerprint))
+        {
             return false;
         }
     }
@@ -158,7 +162,10 @@ fn policy_matches(
         return false;
     }
     if !policy.fingerprints.is_empty()
-        && !policy.fingerprints.iter().any(|wanted| wanted.eq_ignore_ascii_case(fingerprint))
+        && !policy
+            .fingerprints
+            .iter()
+            .any(|wanted| wanted.eq_ignore_ascii_case(fingerprint))
     {
         return false;
     }
@@ -192,17 +199,30 @@ pub fn evaluate(
         .collect::<Vec<_>>();
     ordered.sort_by_key(|item| item.priority);
     for item in ordered {
-        if policy_matches(item, provider, extension, severity, risk_score, categories, fingerprint) {
+        if policy_matches(
+            item,
+            provider,
+            extension,
+            severity,
+            risk_score,
+            categories,
+            fingerprint,
+        ) {
             if let Some(exception) = item.exceptions.iter().find(|exception| {
                 exception_matches(exception, provider, extension, categories, fingerprint)
             }) {
-                let exception_action = if exception.action.is_empty() { "allow" } else { exception.action.as_str() };
+                let exception_action = if exception.action.is_empty() {
+                    "allow"
+                } else {
+                    exception.action.as_str()
+                };
                 return PolicyDecision {
                     action: exception_action.to_owned(),
                     policy_id: Some(item.id.clone()),
                     policy_name: Some(item.name.clone()),
                     reason: format!("matched_exception:{}:{}", item.id, exception.name),
-                    share_redacted_preview: item.share_redacted_preview && exception_action != "block",
+                    share_redacted_preview: item.share_redacted_preview
+                        && exception_action != "block",
                 };
             }
             return PolicyDecision {
@@ -390,15 +410,25 @@ mod fingerprint_tests {
             categories: vec![],
             providers: vec![],
             extensions: vec![],
-            fingerprints: vec!["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into()],
+            fingerprints: vec![
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into(),
+            ],
             exceptions: vec![],
             share_redacted_preview: false,
         };
-        let bundle = PolicyBundle { policies: vec![policy], fail_closed: true };
+        let bundle = PolicyBundle {
+            policies: vec![policy],
+            fail_closed: true,
+        };
         let decision = evaluate(
-            &bundle, "chatgpt", "pdf",
+            &bundle,
+            "chatgpt",
+            "pdf",
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            true, "none", 0, &[]
+            true,
+            "none",
+            0,
+            &[],
         );
         assert_eq!(decision.action, "block");
     }
