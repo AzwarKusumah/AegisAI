@@ -313,7 +313,7 @@ mod tests {
         let full_exception_match = evaluate(
             &bundle,
             "chatgpt",
-            "pdf",
+            "xlsx",
             true,
             "critical",
             100,
