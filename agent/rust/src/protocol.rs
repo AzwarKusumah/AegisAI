@@ -10,6 +10,7 @@ pub const MAX_CHUNKS: usize = 40;
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AgentMessage {
+    Status,
     FileStart {
         file_id: String,
         provider_domain: String,
