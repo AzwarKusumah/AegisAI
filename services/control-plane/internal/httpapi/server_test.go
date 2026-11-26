@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/AzwarKusumah/AegisAI/services/control-plane/internal/events"
+	"github.com/AzwarKusumah/AegisAI/services/control-plane/internal/policies"
 	controlstore "github.com/AzwarKusumah/AegisAI/services/control-plane/internal/store"
 )
 
@@ -20,9 +22,10 @@ type memoryRepository struct {
 	pairingCodes map[string]time.Time
 	devices map[string]events.DeviceRecord
 	tokens map[string]string
+	policies map[string]policies.Policy
 }
 func newMemoryRepository() *memoryRepository {
-	return &memoryRepository{pairingCodes: map[string]time.Time{}, devices: map[string]events.DeviceRecord{}, tokens: map[string]string{}}
+	return &memoryRepository{pairingCodes: map[string]time.Time{}, devices: map[string]events.DeviceRecord{}, tokens: map[string]string{}, policies: map[string]policies.Policy{}}
 }
 func (m *memoryRepository) Insert(_ context.Context, event events.SecurityEvent) error {
 	m.inserted++
@@ -145,4 +148,93 @@ func TestDeviceEnrollmentIngestAndRevocation(t *testing.T) {
 	reuseResponse := httptest.NewRecorder()
 	handler.ServeHTTP(reuseResponse, reuseRequest)
 	if reuseResponse.Code != http.StatusUnauthorized { t.Fatalf("pairing code must be one-use: %d", reuseResponse.Code) }
+}
+
+func (m *memoryRepository) ListPolicies(_ context.Context, enabledOnly bool) ([]policies.Policy, error) {
+	result := make([]policies.Policy, 0, len(m.policies))
+	for _, item := range m.policies {
+		if !enabledOnly || item.Enabled { result = append(result, item) }
+	}
+	return result, nil
+}
+func (m *memoryRepository) SavePolicy(_ context.Context, item policies.Policy) error {
+	item.UpdatedAt = time.Now().UTC()
+	m.policies[item.ID] = item
+	return nil
+}
+func (m *memoryRepository) DeletePolicy(_ context.Context, id string) error {
+	if _, ok := m.policies[id]; !ok { return sql.ErrNoRows }
+	delete(m.policies, id)
+	return nil
+}
+
+func TestPairingCodeSupportsOneToTwentyFourHours(t *testing.T) {
+	repo := newMemoryRepository()
+	handler := New(repo, "legacy", "admin")
+	body := strings.NewReader(`{"expires_in_hours":24}`)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/pairing-codes", body)
+	request.Header.Set("Authorization", "Bearer admin")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusCreated { t.Fatalf("create pairing: %d %s", response.Code, response.Body.String()) }
+	var result struct { ExpiresAt time.Time `json:"expires_at"`; ExpiresInHours int `json:"expires_in_hours"` }
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil { t.Fatal(err) }
+	remaining := time.Until(result.ExpiresAt)
+	if result.ExpiresInHours != 24 || remaining < 23*time.Hour || remaining > 24*time.Hour {
+		t.Fatalf("unexpected expiry: hours=%d remaining=%s", result.ExpiresInHours, remaining)
+	}
+	bad := httptest.NewRecorder()
+	badRequest := httptest.NewRequest(http.MethodPost, "/api/v1/pairing-codes", strings.NewReader(`{"expires_in_hours":25}`))
+	badRequest.Header.Set("Authorization", "Bearer admin")
+	handler.ServeHTTP(bad, badRequest)
+	if bad.Code != http.StatusBadRequest { t.Fatalf("25 hour code should be rejected: %d", bad.Code) }
+}
+
+func TestPolicyAdminLifecycleAndAgentDistribution(t *testing.T) {
+	repo := newMemoryRepository()
+	repo.devices["device-1"] = events.DeviceRecord{DeviceID:"device-1", Hostname:"workstation", OS:"windows", Username:"alice", Status:"active"}
+	repo.tokens[hashSecret("device-token")] = "device-1"
+	handler := New(repo, "legacy", "admin")
+	policy := policies.Policy{
+		ID:"block-nik", Name:"Block national identifiers", Description:"Prevent uploads containing NIK candidates.",
+		Enabled:true, Priority:20, Action:"block", MinSeverity:"high", MinRiskScore:70,
+		Categories:[]string{"national_identifier"}, Providers:[]string{"chatgpt"}, Extensions:[]string{"pdf"},
+	}
+	body, _ := json.Marshal(policy)
+	create := httptest.NewRequest(http.MethodPost, "/api/v1/policies", strings.NewReader(string(body)))
+	create.Header.Set("Authorization", "Bearer admin")
+	created := httptest.NewRecorder()
+	handler.ServeHTTP(created, create)
+	if created.Code != http.StatusOK { t.Fatalf("create policy: %d %s", created.Code, created.Body.String()) }
+
+	list := httptest.NewRecorder()
+	listRequest := httptest.NewRequest(http.MethodGet, "/api/v1/policies", nil)
+	listRequest.Header.Set("Authorization", "Bearer admin")
+	handler.ServeHTTP(list, listRequest)
+	if list.Code != http.StatusOK || !strings.Contains(list.Body.String(), "block-nik") {
+		t.Fatalf("admin policy list: %d %s", list.Code, list.Body.String())
+	}
+
+	agent := httptest.NewRecorder()
+	agentRequest := httptest.NewRequest(http.MethodGet, "/api/v1/agent/policies", nil)
+	agentRequest.Header.Set("Authorization", "Bearer device-token")
+	handler.ServeHTTP(agent, agentRequest)
+	if agent.Code != http.StatusOK || !strings.Contains(agent.Body.String(), `"fail_closed":true`) || !strings.Contains(agent.Body.String(), "block-nik") {
+		t.Fatalf("agent policy distribution: %d %s", agent.Code, agent.Body.String())
+	}
+
+	invalid := policy
+	invalid.Action = "silently_allow"
+	invalidBody, _ := json.Marshal(invalid)
+	invalidResponse := httptest.NewRecorder()
+	invalidRequest := httptest.NewRequest(http.MethodPost, "/api/v1/policies", strings.NewReader(string(invalidBody)))
+	invalidRequest.Header.Set("Authorization", "Bearer admin")
+	handler.ServeHTTP(invalidResponse, invalidRequest)
+	if invalidResponse.Code != http.StatusBadRequest { t.Fatalf("invalid policy action should fail: %d", invalidResponse.Code) }
+
+	remove := httptest.NewRecorder()
+	removeRequest := httptest.NewRequest(http.MethodDelete, "/api/v1/policies/block-nik", nil)
+	removeRequest.Header.Set("Authorization", "Bearer admin")
+	handler.ServeHTTP(remove, removeRequest)
+	if remove.Code != http.StatusNoContent { t.Fatalf("delete policy: %d %s", remove.Code, remove.Body.String()) }
 }

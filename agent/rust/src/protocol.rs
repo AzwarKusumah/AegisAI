@@ -26,6 +26,10 @@ pub enum AgentMessage {
     FileEnd {
         file_id: String,
     },
+    EnforcementResult {
+        file_id: String,
+        blocked: bool,
+    },
 }
 
 pub fn provider_id(domain: &str) -> Option<&'static str> {
@@ -106,6 +110,8 @@ pub struct Inspection {
     pub risk_score: u8,
     pub severity: String,
     pub categories: Vec<String>,
+    #[serde(skip)]
+    pub redacted_preview: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -127,6 +133,10 @@ pub struct SecurityEvent {
     pub inspection: Inspection,
     pub outcome: String,
     pub enforcement: Enforcement,
+    pub policy_id: Option<String>,
+    pub policy_name: Option<String>,
+    pub policy_action: Option<String>,
+    pub redacted_preview: Option<String>,
 }
 
 pub fn read_message<R: Read>(reader: &mut R, max_bytes: usize) -> Result<Option<Vec<u8>>> {

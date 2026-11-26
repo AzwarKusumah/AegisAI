@@ -1,47 +1,35 @@
 # AegisAI Browser Extension
 
-Version 0.4.0 builds separate Chromium and Firefox packages from the same TypeScript source. Both packages use Manifest V3 with browser-specific background declarations.
+Version 0.5.0 builds separate Chromium and Firefox packages from the same TypeScript source. Both use Manifest V3 with browser-specific background declarations.
 
 ## Build both browser packages
-
-From this directory:
 
     npm install
     npm run typecheck
     npm run build
     npm run test:packages
 
-Build only one target:
+Load the generated dist/chromium or dist/firefox directory as an unpacked/temporary extension. The extension starts protection automatically; there is no opt-in switch in the popup.
 
-    npm run build:chromium
-    npm run build:firefox
+## Supported services and enforcement
 
-The generated, loadable extension directories are:
-- dist/chromium — Chrome, Edge, Brave, and other Chromium browsers (Manifest V3 service worker).
-- dist/firefox — Firefox (Manifest V3 background scripts/event page).
+The extension currently covers ChatGPT, Claude, Gemini, Microsoft Copilot, Perplexity and Grok on their allowlisted HTTPS origins.
 
-Load the corresponding directory as an unpacked/temporary extension in the browser's developer extension page. The generated folders include their own manifest.json, compiled bundles, and popup assets. Build outputs are generated locally and are not committed.
+On supported pages, the content script intercepts standard file-input change events plus file drop and file paste events. The file is inspected by the local Agent before the original page event is replayed. A block decision suppresses the event and clears a selected file input. An inspection or policy-service failure stops the file from being passed through the supported event path.
 
-## Download ready-to-load ZIP packages
+The extension does not inspect text-only prompts or clipboard text. It cannot guarantee prevention of every upload path: providers may change their DOM, use a different upload flow, or transmit data through paths not represented by these events. Validate each provider in a controlled test environment.
 
-GitHub Actions automatically creates:
-- aegisai-extension-chromium.zip — Chrome, Edge, Brave, and Chromium-based browsers.
-- aegisai-extension-firefox.zip — Firefox.
+## Data handling
 
-Download them from the **release-extensions** artifact in the latest successful **Build endpoint and browser packages** workflow run, or from a versioned GitHub Release. Extract the archive and load the folder containing manifest.json using the browser's developer extension page.
-
-The ZIPs are loadable extension packages for development/managed unpacked installation. They are not signed CRX/XPI store packages. Chrome Web Store and Mozilla Add-ons signing/publishing require their separate store process.
-
-## User consent and privacy
-
-Inspection is off by default. The user must enable “Inspect selected AI attachments” in the extension popup. When enabled, the content script reads selected file bytes and streams them in ordered 256 KiB chunks to the local Rust Native Messaging host.
-
-The file bytes do not go to the AegisAI control plane. Only the Rust agent's metadata-only inspection result is sent to the server. The matched secret/PII values and extracted document text are never included in an event.
+- File bytes are sent only to the local Rust Native Messaging host.
+- The Control Plane receives categories, severity, risk score, file metadata and policy outcomes; it does not receive raw files or detected secret values.
+- A policy may opt to share a short redacted preview. This is disabled by default and should be enabled only after a data-handling review.
+- The popup is informational and shows that browser protection is active.
 
 ## Limits
 
-- Supported provider domains are configured in src/providers.ts and both manifests.
-- Current file size limit is 10 MiB.
-- Files are read locally after the provider file input changes.
-- This version does not cancel the provider's upload, inspect clipboard content, or prevent a send action.
-- Provider DOM and upload behavior can change; test each supported provider before production rollout.
+- Maximum file size is 10 MiB. Oversized files are held back instead of being passed to the supported page event handler.
+- Supported extraction: plain text/code, text-based PDF, DOCX, XLSX and ZIP archives containing supported files.
+- Encrypted documents, image-only/scanned PDFs, images and unsupported formats cannot be inspected by this release; managed devices fail closed.
+- There is no OCR, fingerprinting, ML classification, browser network interception, TLS inspection, OS/kernel network control or desktop-app enforcement.
+- Extension-store publication/signing is separate. A consumer browser requires a one-time unpacked load until the extension is published; enterprise administrators can use their browser's managed force-install policy.

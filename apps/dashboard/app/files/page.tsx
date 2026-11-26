@@ -6,7 +6,8 @@ import type { SecurityEvent } from "../../lib/types";
 type FileRecord = {
   key: string; name: string; extension: string; mime: string; size: number;
   device: string; provider: string; lastSeen: string; observations: number;
-  tags: string[]; severity: string; risk: number;
+  tags: string[]; severity: string; risk: number; outcome: string;
+  policy: string; preview?: string;
 };
 function sizeLabel(bytes: number) {
   if (bytes < 1024) return bytes + " B";
@@ -17,12 +18,14 @@ export default function FileInventoryPage() {
   const [events, setEvents] = useState<SecurityEvent[]>([]);
   const [status, setStatus] = useState("Loading");
   const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<FileRecord | null>(null);
+
   useEffect(() => {
     void (async () => {
       try {
         const response = await fetch("/api/events?limit=500", { cache: "no-store" });
         const data = await response.json();
-        if (!response.ok) throw new Error(data.error ?? "Could not load file metadata");
+        if (!response.ok) throw new Error(data.error ?? "Could not load file records");
         setEvents(data.events ?? []);
         setStatus("Connected");
       } catch (error) {
@@ -30,6 +33,7 @@ export default function FileInventoryPage() {
       }
     })();
   }, []);
+
   const files = useMemo(() => {
     const grouped = new Map<string, FileRecord>();
     for (const event of events) {
@@ -43,13 +47,17 @@ export default function FileInventoryPage() {
           current.tags = event.inspection.categories;
           current.severity = event.inspection.severity;
           current.risk = event.inspection.risk_score;
+          current.outcome = event.outcome;
+          current.policy = event.policy_name ?? "";
+          current.preview = event.redacted_preview;
         }
       } else {
         grouped.set(key, {
           key, name: event.file.name, extension: event.file.extension, mime: event.file.mime_type,
           size: event.file.size_bytes, device: event.device.hostname, provider: event.provider,
           lastSeen: event.occurred_at, observations: 1, tags: event.inspection.categories,
-          severity: event.inspection.severity, risk: event.inspection.risk_score
+          severity: event.inspection.severity, risk: event.inspection.risk_score,
+          outcome: event.outcome, policy: event.policy_name ?? "", preview: event.redacted_preview
         });
       }
     }
@@ -60,37 +68,59 @@ export default function FileInventoryPage() {
 
   return <main className="shell">
     <aside className="sidebar">
-      <div className="brand"><span className="brandMark">A</span><span>AegisAI<small>SECURITY CONSOLE</small></span></div>
-      <a className="navItem" href="/">Overview</a>
-      <a className="navItem active" href="/files">File inventory</a>
-      <a className="navItem" href="/devices">Devices</a>
-      <div className="navItem disabled">Policies <small>Next phase</small></div>
-      <div className="sidebarFoot">METADATA ONLY<br/>NO FILE CONTENTS STORED</div>
+      <a className="brand" href="/"><span className="brandMark">A</span><span>AegisAI<small>Data protection</small></span></a>
+      <nav className="navGroup" aria-label="Main navigation">
+        <a className="navItem" href="/">Activity</a>
+        <a className="navItem active" href="/files" aria-current="page">Files</a>
+        <a className="navItem" href="/devices">Devices</a>
+        <a className="navItem" href="/policies">Policies</a>
+      </nav>
+      <div className="sidebarFoot">Self-hosted deployment</div>
       <form action="/api/auth/logout" method="post"><button className="logoutButton">Sign out</button></form>
     </aside>
     <section className="content">
       <header className="topbar">
-        <div><p className="eyebrow">OBSERVED FILE METADATA</p><h1>File inventory</h1><p className="subhead">Observed filenames and inspection tags grouped by endpoint.</p></div>
+        <div><p className="eyebrow">File records</p><h1>Files</h1><p className="subhead">A history of inspected attachments, organized by computer.</p></div>
         <div className={"connection " + (status === "Connected" ? "online" : "offline")}><i />{status}</div>
       </header>
-      <div className="notice"><strong>Privacy model</strong><span>This is an inventory of file metadata observed in security events, not a central file repository. AegisAI does not upload or store the original file bytes or matched secret values.</span></div>
+      <div className="inlineNote"><strong>Content privacy</strong><span>Original files and detected values remain on the endpoint. A policy may optionally share a short preview with detected values redacted.</span></div>
       <section className="panel">
-        <div className="panelHead"><div><h2>Observed files</h2><p>{files.length} unique device-and-filename records in the latest event window</p></div></div>
+        <div className="panelHead"><div><h2>Observed files</h2><p>{files.length} unique computer and filename records</p></div></div>
         <form className="search" onSubmit={(event) => event.preventDefault()}>
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search filename, device, provider, or metadata tag..." />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search filename, computer, service, or finding" aria-label="Search files" />
         </form>
-        <div className="tableWrap"><table><thead><tr><th>FILE</th><th>DEVICE</th><th>PROVIDER</th><th>METADATA TAGS</th><th>RISK</th><th>OBSERVED</th><th>LAST SEEN</th></tr></thead>
-          <tbody>{files.map((item) => <tr key={item.key}>
+        <div className="tableWrap"><table><thead><tr><th>File</th><th>Computer</th><th>Service</th><th>Findings</th><th>Policy result</th><th>Last seen</th></tr></thead>
+          <tbody>{files.map((item) => <tr key={item.key} onClick={() => setSelected(item)} tabIndex={0} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setSelected(item); }}>
             <td><div className="fileName">{item.name}</div><small>{item.extension || "file"} · {sizeLabel(item.size)} · {item.mime || "unknown type"}</small></td>
             <td>{item.device}</td><td><span className="provider">{item.provider}</span></td>
-            <td><div className="tagList">{item.tags.length ? item.tags.map((tag) => <span className="tagChip" key={tag}>{tag.replace(/_/g, " ")}</span>) : <span className="muted">No tags</span>}</div></td>
-            <td><span className={"pill " + (item.severity === "critical" || item.severity === "high" ? "red" : item.tags.length ? "amber" : "teal")}>{item.risk}/100 · {item.severity}</span></td>
-            <td>{item.observations}</td><td><span className="time">{new Date(item.lastSeen).toLocaleString()}</span></td>
+            <td><div className="tagList">{item.tags.length ? item.tags.map((tag) => <span className="tagChip" key={tag}>{tag.replace(/_/g, " ")}</span>) : <span className="muted">No matches</span>}</div></td>
+            <td><span className={"statusText " + (item.outcome === "prevented" ? "statusBad" : item.tags.length ? "statusWarn" : "statusGood")}>{item.outcome === "prevented" ? "Browser blocked" : item.policy || "Allowed"}</span><small>{item.risk}/100 · {item.severity}</small></td>
+            <td><span className="time">{new Date(item.lastSeen).toLocaleString()}</span></td>
           </tr>)}
-          {files.length === 0 && <tr><td colSpan={7} className="empty">No file metadata available yet. Connect an endpoint and inspect a test file.</td></tr>}</tbody>
+          {files.length === 0 && <tr><td colSpan={6} className="empty">No file records yet. Connect an endpoint and inspect a supported file.</td></tr>}</tbody>
         </table></div>
-        <div className="panelFoot">Inventory is derived from the latest 500 security events; it does not retain or expose file contents.</div>
+        <div className="panelFoot">The inventory is derived from inspection events; it is not a file repository.</div>
       </section>
+
+      {selected && <div className="overlay" onClick={() => setSelected(null)}>
+        <section className="detail" onClick={(event) => event.stopPropagation()} aria-label="File details">
+          <button className="close" onClick={() => setSelected(null)}>Close</button>
+          <p className="eyebrow">File record</p><h2>{selected.name}</h2>
+          <dl>
+            <dt>Computer</dt><dd>{selected.device}</dd>
+            <dt>Service</dt><dd>{selected.provider}</dd>
+            <dt>File type</dt><dd>{selected.mime || selected.extension || "Unknown"}</dd>
+            <dt>Size</dt><dd>{sizeLabel(selected.size)}</dd>
+            <dt>Risk</dt><dd>{selected.risk}/100 · {selected.severity}</dd>
+            <dt>Findings</dt><dd>{selected.tags.join(", ") || "None"}</dd>
+            <dt>Policy</dt><dd>{selected.policy || "No matching policy"}</dd>
+            <dt>Observations</dt><dd>{selected.observations}</dd>
+            <dt>Last seen</dt><dd>{new Date(selected.lastSeen).toLocaleString()}</dd>
+          </dl>
+          {selected.preview ? <section className="previewPanel"><h3>Redacted document preview</h3><pre>{selected.preview}</pre><p>Detected values were removed before the preview left the endpoint.</p></section> :
+            <p className="detailNote">No preview is available for this record. Enable redacted previews on a policy to share a limited excerpt after local masking.</p>}
+        </section>
+      </div>}
     </section>
   </main>;
 }

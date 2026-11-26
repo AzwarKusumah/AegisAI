@@ -232,10 +232,96 @@ jobs:
           compression-level: 0
           retention-days: 30
 
+  windows-self-contained-installer:
+    name: Build single-file Windows installer
+    needs: [extension-packages, agent-binaries]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-agent-windows-x86_64
+          path: ${{ runner.temp }}/agent-artifact
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-extensions
+          path: ${{ runner.temp }}/extension-artifact
+      - name: Assemble self-contained installer payload
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $stage = Join-Path $env:RUNNER_TEMP "aegisai-installer-payload"
+          Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+
+          $agentArchive = Get-ChildItem (Join-Path $env:RUNNER_TEMP "agent-artifact") -Filter "*.zip" -File -Recurse | Select-Object -First 1
+          if (-not $agentArchive) { throw "Windows Agent artifact ZIP was not found." }
+          $agentExtract = Join-Path $env:RUNNER_TEMP "agent-extracted"
+          Expand-Archive -LiteralPath $agentArchive.FullName -DestinationPath $agentExtract -Force
+          $agentExe = Get-ChildItem $agentExtract -Filter "aegisai-agent.exe" -File -Recurse | Select-Object -First 1
+          if (-not $agentExe) { throw "aegisai-agent.exe was not found in the endpoint artifact." }
+          Copy-Item $agentExe.FullName (Join-Path $stage "aegisai-agent.exe")
+          $engine = Join-Path $agentExe.Directory.FullName "engine"
+          if (-not (Test-Path (Join-Path $engine "aegis_inspector"))) { throw "The local inspection engine was not found." }
+          Copy-Item $engine (Join-Path $stage "engine") -Recurse
+
+          $extensionArchive = Get-ChildItem (Join-Path $env:RUNNER_TEMP "extension-artifact") -Filter "aegisai-extension-chromium.zip" -File -Recurse | Select-Object -First 1
+          if (-not $extensionArchive) { throw "Chromium extension package was not found." }
+          $extensionDestination = Join-Path $stage "extension/chromium"
+          New-Item -ItemType Directory -Force -Path $extensionDestination | Out-Null
+          Expand-Archive -LiteralPath $extensionArchive.FullName -DestinationPath $extensionDestination -Force
+          if (-not (Test-Path (Join-Path $extensionDestination "manifest.json"))) { throw "The Chromium extension manifest is missing." }
+
+          $pythonVersion = (python -c "import sys; print('.'.join(map(str, sys.version_info[:3])))").Trim()
+          $pythonRoot = Join-Path $stage "python"
+          New-Item -ItemType Directory -Force -Path $pythonRoot | Out-Null
+          $pythonZip = Join-Path $env:RUNNER_TEMP "python-embed-amd64.zip"
+          $pythonUrl = "https://www.python.org/ftp/python/$pythonVersion/python-$pythonVersion-embed-amd64.zip"
+          Invoke-WebRequest -Uri $pythonUrl -OutFile $pythonZip
+          Expand-Archive -LiteralPath $pythonZip -DestinationPath $pythonRoot -Force
+          $sitePackages = Join-Path $pythonRoot "Lib/site-packages"
+          New-Item -ItemType Directory -Force -Path $sitePackages | Out-Null
+          python -m pip install --disable-pip-version-check --no-warn-script-location --target $sitePackages "pypdf>=5,<6" "python-docx>=1.1,<2" "openpyxl>=3.1,<4"
+          $pth = Get-ChildItem $pythonRoot -Filter "*._pth" -File | Select-Object -First 1
+          if (-not $pth) { throw "Embedded Python path configuration was not found." }
+          @("python312.zip", ".", "Lib\site-packages", "import site") | Set-Content -LiteralPath $pth.FullName -Encoding Ascii
+          if (-not (Test-Path (Join-Path $pythonRoot "python.exe"))) { throw "Embedded Python executable is missing." }
+
+          $bundleDir = "agent/windows-installer/bundle"
+          New-Item -ItemType Directory -Force -Path $bundleDir | Out-Null
+          $bundleZip = Join-Path $bundleDir "installer-bundle.zip"
+          Remove-Item $bundleZip -Force -ErrorAction SilentlyContinue
+          Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $bundleZip -CompressionLevel Optimal
+          Write-Host "Self-contained payload prepared: $((Get-Item $bundleZip).Length) bytes"
+      - name: Publish single-file Windows installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          dotnet publish agent/windows-installer/AegisAI.Installer.csproj -c Release -r win-x64 --self-contained true -o "$env:RUNNER_TEMP/aegisai-installer-release" -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true
+          New-Item -ItemType Directory -Force -Path release-assets | Out-Null
+          Copy-Item "$env:RUNNER_TEMP/aegisai-installer-release/AegisAI-Installer.exe" "release-assets/AegisAI-Installer-Windows-x86_64.exe"
+          $hash = (Get-FileHash "release-assets/AegisAI-Installer-Windows-x86_64.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  AegisAI-Installer-Windows-x86_64.exe" | Set-Content "release-assets/AegisAI-Installer-Windows-x86_64.exe.sha256" -Encoding Ascii
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-installer-windows
+          path: |
+            release-assets/AegisAI-Installer-Windows-x86_64.exe
+            release-assets/AegisAI-Installer-Windows-x86_64.exe.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
   publish-release:
     name: Attach packages to GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [extension-packages, agent-binaries, setup-cli]
+    needs: [extension-packages, agent-binaries, setup-cli, windows-self-contained-installer]
     runs-on: ubuntu-latest
     permissions:
       contents: write

@@ -1,21 +1,21 @@
 # AegisAI
 
-**Protect your data before it reaches AI.**
+**Protect sensitive data before it is shared with AI services.**
 
-AegisAI is a self-hosted AI Data Loss Prevention platform designed to inspect sensitive data locally and provide an audit trail of activity involving external AI services.
+AegisAI is a self-hosted data-protection platform for supported AI-provider web apps. It inspects selected attachments locally, evaluates centrally managed policies, stops standard browser attachment events when a block rule matches, and records metadata-only audit events.
 
-> Early development. v0.4 adds lightweight deployment options and separate Chromium/Firefox extension packages. The current extension observes selected files and performs local inspection; it does not guarantee that an upload is blocked.
+> Early development. The current browser enforcement is a client-side control for supported attachment-selection, drop, and paste paths. It is not a network gateway, TLS interceptor, or OS-wide DLP agent; browser/site behavior can change and alternative upload paths may bypass a DOM-level control.
 
 ## Platform
 
 | Component | Technology | Responsibility |
 |---|---|---|
-| Endpoint agent | Rust | Native Messaging, local file streaming, device identity, event spool |
-| Browser extension | TypeScript / WebExtensions | Explicit opt-in, observe file selection, stream bytes to local agent |
-| Control plane | Go | Authenticated metadata ingestion and audit queries |
-| Detection engine | Python | Local content extraction, secret and PII detection, optional Gitleaks |
-| Dashboard | Next.js / React | Protected audit UI for file, user/device, provider, and inspection visibility |
-| Storage | PostgreSQL | Metadata-only event storage |
+| Endpoint agent | Rust | Native Messaging, local document inspection, device identity, policy evaluation, event spool |
+| Browser extension | TypeScript / WebExtensions | Auto-on attachment inspection and best-effort browser event enforcement on supported AI sites |
+| Control plane | Go | Device enrollment, policy CRUD/distribution, event ingestion, audit queries |
+| Detection engine | Python | Local text, PDF, DOCX, XLSX and ZIP extraction; built-in secret and PII classifiers |
+| Dashboard | Next.js / React | Activity, device inventory, file metadata, redacted previews and DLP policy administration |
+| Storage | PostgreSQL | Policy definitions, device credentials and metadata-only security events |
 
 ## Install the server
 
@@ -26,12 +26,26 @@ Use the prebuilt AegisAI Setup TUI from the repository's GitHub Actions artifact
     ./aegisai-setup-macos-aarch64
     .\aegisai-setup-windows-x86_64.exe
 
-The TUI asks for deployment type, PostgreSQL database/user/password, dashboard username/password, agent ingestion token, internal admin API token, dashboard port, and network bind address. Secrets are masked while typing. Blank secrets are generated securely. The TUI writes a private .env file and starts the selected deployment.
+The TUI collects deployment type, PostgreSQL database/user/password, dashboard username/password, agent ingestion token, internal admin API token, dashboard port, and network bind address. Secrets are masked while typing. Blank secrets are generated securely. The TUI writes a private .env file and starts the selected deployment.
 
 - Docker Compose creates PostgreSQL 17 Alpine, Go control plane, and Next.js dashboard containers.
-- Native systemd installs the Go API and Next.js standalone dashboard as Linux services, using an existing PostgreSQL database. The selected database user must be able to create tables and indexes.
+- Native systemd installs the Go API and Next.js standalone dashboard as Linux services, using an existing PostgreSQL database.
 
-Run the TUI with --no-deploy to write configuration without starting services. Full setup details: deployments/setup/README.md.
+Full setup details: deployments/setup/README.md.
+
+## Windows endpoint installation
+
+Download the **AegisAI-Installer-Windows-x86_64.exe** artifact from the latest successful Build endpoint and browser packages workflow run.
+
+The self-contained installer includes:
+- Rust endpoint Agent.
+- Python 3.12 embeddable runtime and the PDF/DOCX/XLSX inspection dependencies.
+- Local detection engine.
+- Chromium extension package.
+
+No PowerShell window, Rust toolchain, or separate Python installation is needed on the endpoint. The installer registers the Native Messaging host for the selected browser and enrolls the device with a one-time code.
+
+The browser extension must still be loaded unpacked once from the folder extracted by the installer unless the extension is published to a browser store or deployed through an enterprise force-install policy. This is a browser platform requirement; the installer opens the extension settings page and shows the exact folder to load.
 
 ## Build browser extensions
 
@@ -42,90 +56,77 @@ From apps/extension:
     npm run build
     npm run test:packages
 
-Builds are generated separately:
-- apps/extension/dist/chromium — Chrome, Edge, Brave, and other Chromium browsers (Manifest V3 service worker).
-- apps/extension/dist/firefox — Firefox (Manifest V3 background scripts).
+Generated packages:
+- apps/extension/dist/chromium — Chrome, Edge and Chromium browsers.
+- apps/extension/dist/firefox — Firefox.
 
-Load the corresponding directory as an unpacked/temporary extension from the browser's extension developer page. Installation and Native Messaging registration are separate endpoint setup steps; see apps/extension/README.md and agent/rust/README.md.
+The extension starts protection automatically; there is no opt-in popup toggle. Only the allowlisted provider domains are covered.
 
 ## Download prebuilt packages from GitHub Actions
 
-GitHub Actions builds the endpoint agent and browser extensions. You do not need Rust or Node.js on the endpoint just to install the downloaded packages.
-
-For every push to main or this feature branch, and for pull requests targeting main:
+GitHub Actions builds the endpoint agent, browser extensions, setup utility, and the self-contained Windows installer.
 
 1. Open the repository's Actions tab.
 2. Select the latest successful **Build endpoint and browser packages** run.
 3. Download the artifacts:
-   - release-extensions: Chromium and Firefox ZIP packages.
-   - release-agent-windows-x86_64: Windows installer bundle.
-   - release-agent-linux-x86_64 and release-agent-linux-aarch64: Linux bundles.
-   - release-agent-macos-x86_64 and release-agent-macos-aarch64: Intel and Apple Silicon macOS bundles.
+   - release-installer-windows: one-file Windows installer (.exe).
+   - release-extensions: Chromium and Firefox ZIP packages for manual browser installation.
+   - release-agent-linux-* and release-agent-macos-*: native bundles for Linux and macOS.
    - release-setup-* artifacts: prebuilt AegisAI setup TUI for Windows, Linux, and macOS.
-4. Verify the download with the matching .sha256 file before installation.
+4. Verify downloads using the matching .sha256 files.
 
-Build artifacts are retained by GitHub Actions for 30 days. When a version tag matching v* is pushed, the same workflow attaches all packages and checksums to a GitHub Release.
+Build artifacts are retained by GitHub Actions for 30 days. Version tags matching v* attach all packages and checksums to a GitHub Release.
 
-For example, after the change is merged and you are ready to publish v0.4.0:
+## Local inspection and enforcement flow
 
-    git tag v0.4.0
-    git push origin v0.4.0
+1. The browser extension observes file attachment selection, drop, and paste events on supported AI-provider domains.
+2. Before the page receives the standard attachment event, the extension streams bounded 256 KiB chunks to the local Rust Native Messaging host.
+3. Rust validates the provider, filename, transfer sequence, and 10 MiB per-file limit.
+4. Rust streams bytes to the local Python inspector through stdin. No temporary copy is created. The scan process has a 30-second timeout.
+5. The inspector extracts supported document text and evaluates built-in secret and PII classifiers. Detected spans are replaced in an optional short preview before it can be sent to the server.
+6. The Agent retrieves the enrolled device's policy set from the Control Plane and evaluates rules by ascending priority. The first matching rule chooses block, audit, or allow. A matching exception skips its parent policy.
+7. A block decision keeps the selected file from being passed through the supported browser event path. An inspection or policy-service failure is fail-closed for managed devices. The Agent records a browser-enforcement result and forwards event metadata; the original file bytes and raw matches are not sent.
+8. Dashboard users can review events and, only when explicitly enabled in a policy, a limited redacted preview.
 
-The extension ZIPs contain a loadable unpacked extension package. They are not Chrome Web Store CRX files or Mozilla-signed XPI files; browser-store publication/signing is a separate step.
+The Control Plane never receives the original file bytes. Redacted previews are optional and may still contain other confidential context; enable them only when permitted by the organization's data-handling rules.
 
-## Local inspection flow
+## Policy model
 
-1. The user explicitly enables local inspection in the browser extension popup (off by default).
-2. When a file is selected in a supported AI-provider page, the extension reads its bytes in memory.
-3. The extension sends ordered 256 KiB chunks over Native Messaging to the Rust agent on the same endpoint.
-4. Rust validates the provider, filename, transfer sequence, and 10 MiB limit.
-5. Rust streams bytes to the local Python inspection process via stdin. No temporary copy is created. The scan process has a 30-second timeout.
-6. Python returns only a compact summary: finding count, unique categories, highest severity, risk score, and completion status. Matched values and extracted text never enter the event.
-7. Rust clears the transfer buffer, stores the metadata event locally, and forwards metadata only to the Go control plane.
+A policy contains:
+- Rule conditions: minimum severity, risk score, content categories, provider and file-extension scope.
+- Exceptions: approved categories, providers or file extensions that exempt a matching rule.
+- Action: block, audit, or allow.
+- Priority: lower numbers are evaluated first.
+- Optional redacted-preview sharing.
 
-The control plane never receives file bytes, prompts, extracted document text, clipboard content, or matched sensitive values.
+A new installation seeds two editable policies: block high-risk credentials and audit personal-data findings. The policy engine is intentionally smaller than a full enterprise DLP suite; there is no drip/cumulative matching, exact database/file fingerprinting, enterprise labeling integration, OCR, ML classifier training, or endpoint network gateway.
 
-## Event semantics
+The structure follows common enterprise DLP concepts used by Forcepoint—policies, rules, exceptions, content classifiers, resources and remediation actions—without claiming feature parity.
 
-- attachment_selected: legacy metadata-only observation.
-- inspection_completed: local inspection completed.
-- unknown: inspection could not be completed; do not interpret it as clean.
-- upload_prevented: reserved for a future trusted enforcement component that positively confirms prevention.
+## Event semantics and enforcement boundary
 
-A selected attachment is not proof that a provider upload completed. The current milestone does not prevent the provider request from leaving the endpoint.
+- inspection_completed: a supported local inspection finished.
+- unknown: inspection could not complete; it is not interpreted as clean.
+- upload_prevented: the extension confirmed that it stopped the supported browser attachment event before it was passed to the page. It does not prove that all network paths or alternative upload mechanisms were blocked.
+- observed: an inspection was recorded without a confirmed browser block.
 
-## Development
+A browser/site update can change event handling. Validate the exact AI-provider versions used in your environment before relying on this as a security boundary.
 
-Install the local inspector from the repository root:
+## Supported inspection and limits
 
-    python -m pip install -e ./engine
+- Current providers: ChatGPT, Claude, Gemini, Microsoft Copilot, Perplexity and Grok.
+- File size: 10 MiB maximum per file; larger files are held back because they cannot be inspected by this build.
+- Formats: text/code formats, text-based PDF, DOCX, XLSX and ZIP containing supported files.
+- Encrypted documents, scanned/image-only PDF, unsupported file formats and extraction failures are not marked clean; they trigger fail-closed behavior on managed endpoints.
+- OCR, arbitrary images, clipboard text, browser request interception, TLS inspection, OS network filtering, desktop AI applications and non-browser upload channels are not covered.
 
-For PDF/DOCX/XLSX extraction support:
+## Security notes
 
-    python -m pip install -e "./engine[documents]"
+- Use HTTPS for remote enrollment and event delivery. Plain HTTP to a public IP is available only as an explicit short-lived testing option and exposes pairing codes and device tokens.
+- Keep PostgreSQL and Dashboard internal ports private; expose the Dashboard and Control Plane through a TLS reverse proxy.
+- Device tokens are individual and revocable; only their hashes are stored by the Control Plane.
+- Redacted-preview sharing is disabled by default in policies.
+- The Windows installer is self-contained but not Authenticode-signed yet; Windows SmartScreen may show an unknown-publisher warning.
+- Browser extension auto-install requires browser-store publication or managed enterprise force-install configuration.
 
-On Windows, register the Native Messaging host using agent/rust/installers/install-windows.ps1. Use -Browser chrome or edge with -ExtensionId, or -Browser firefox.
-
-Configure dashboard credentials on the server:
-- AEGIS_DASHBOARD_USER and AEGIS_DASHBOARD_PASSWORD protect the dashboard and its API routes with HTTP Basic Authentication.
-- AEGIS_API_URL and AEGIS_ADMIN_TOKEN connect the server-side dashboard route to the Go control plane.
-- Never prefix credentials with NEXT_PUBLIC_.
-
-Configure the Rust agent on each endpoint with:
-- AEGIS_PYTHON: local Python executable.
-- AEGIS_ENGINE_PATH: absolute path to the engine directory.
-- AEGIS_CONTROL_PLANE_URL and AEGIS_AGENT_TOKEN for remote metadata ingestion.
-- AEGIS_EXTENSION_ORIGINS with the installed Chromium extension origin. Firefox uses its fixed add-on ID and registered host manifest.
-
-## Security limitations
-
-- Extension scanning is opt-in and disabled by default.
-- Current size limit is 10 MiB per file and one file is scanned at a time.
-- Selected bytes are read locally by the extension and temporarily buffered in endpoint memory for scanning.
-- Unsupported, encrypted, image-only, oversized, or failed inspections are marked failed/unknown, never clean.
-- No browser network interception, upload blocking, clipboard monitoring, TLS interception, OS network filtering, policy administration, SSO, or desktop AI-app enforcement is implemented.
-- OS username attribution is local account context, not enterprise-verified identity.
-- Shared development bearer tokens are not production authentication.
-- Dashboard Basic Authentication should be used behind HTTPS for network-accessible deployments.
-
-See docs/security/audit-and-privacy.md before deployment.
+See docs/security/audit-and-privacy.md and docs/security/policy-engine.md before deployment.

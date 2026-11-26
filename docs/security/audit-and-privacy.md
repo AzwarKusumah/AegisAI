@@ -2,54 +2,62 @@
 
 ## Local inspection behavior
 
-The browser extension is disabled for content inspection by default. The user must enable “Inspect selected AI attachments” in the extension popup. When enabled, selected file bytes are read locally and passed to the Rust endpoint agent through Native Messaging for local inspection.
+The extension starts inspection automatically on supported AI-provider file input, drop and paste events. Before passing the standard attachment event to the provider page, it streams the selected file to the local Rust Agent through Native Messaging.
 
-The current file-size limit is 10 MiB. The agent buffers one selected file at a time, invokes the Python engine through stdin, and zeroizes the Rust transfer buffer after processing. The browser extension does not intentionally write a copy of the file to disk.
+The current file-size limit is 10 MiB. The Agent buffers one selected file at a time, invokes the Python engine through stdin, and zeroizes the Rust transfer buffer after processing. The browser extension does not intentionally write a copy of the file to disk.
 
 ## Allowed event data
 
 - generated event ID and UTC timestamp;
 - provider name and hostname only;
-- file basename, extension, MIME type, and byte size;
+- file basename, extension, MIME type and byte size;
 - agent-generated device ID and hostname;
 - local OS username and explicit identity-source label;
-- inspection status, risk score, severity, and detector category identifiers;
-- event stage and positive enforcement confirmation, where applicable.
+- inspection status, risk score, severity and detector category identifiers;
+- policy ID/name/action;
+- browser enforcement result and component;
+- optional short redacted preview only if the matching policy explicitly allows it.
 
 ## Forbidden event data
 
-- raw file bytes or extracted document text;
-- prompts, conversation contents, or clipboard text;
-- matched passwords, API keys, tokens, private keys, or PII values;
+- original file bytes or unredacted extracted document text;
+- prompts, conversation contents or clipboard text;
+- matched passwords, API keys, tokens, private keys or PII values;
 - full local file paths;
-- browser cookies, authorization headers, or AI-provider session tokens.
+- browser cookies, authorization headers or AI-provider session tokens.
 
-File contents are transferred only to the local Native Messaging host after the user enables inspection. The control plane receives metadata only. The Rust buffer is zeroized after local inspection and before event persistence/forwarding. The local Python process has a 30-second execution timeout. Optional Gitleaks reports are requested on stdout with 100% redaction; the engine stores only compact finding summaries. Filenames can themselves be sensitive; organizations should provide configurable collection, access control, and retention before production deployment.
+The local engine extracts supported documents in memory. A redacted preview masks detected spans before it leaves the endpoint. Redaction covers known detector matches only; it cannot guarantee that the rest of a preview is free of confidential context. Preview sharing is disabled in the seeded policies and should be enabled only after a data-handling review.
+
+## Supported formats
+
+Text/code formats, text-based PDF, DOCX, XLSX and ZIP archives containing supported files can be inspected. Encrypted documents, image-only/scanned PDFs, oversized files and unsupported formats are uninspectable. Managed-device policies are fail-closed for these cases.
+
+No OCR, arbitrary image recognition, file/database fingerprinting, enterprise labels or ML-based classification is included.
 
 ## Dashboard access
 
-The Next.js dashboard and its API routes require HTTP Basic Authentication using server-side AEGIS_DASHBOARD_USER and AEGIS_DASHBOARD_PASSWORD values. Deploy behind HTTPS whenever reachable over a network. The Go control-plane admin token remains server-side and is never sent to browser JavaScript. Basic Authentication is an initial access gate, not a substitute for enterprise SSO, per-user RBAC, MFA, or audited administrator sessions.
+The Next.js dashboard uses an HTTP-only, SameSite=Strict signed session cookie. The session is signed with the server-side AEGIS_ADMIN_TOKEN. Deploy behind HTTPS whenever reachable over a network. The Go Control Plane admin token remains server-side and is never sent to browser JavaScript. This is an initial access gate, not a substitute for enterprise SSO, per-user RBAC, MFA or audited administrator sessions.
 
 ## Event semantics
 
-- attachment_selected: legacy metadata-only file-selection observation.
 - inspection_completed: local inspection completed successfully.
 - unknown: inspection could not be completed; it must never be interpreted as clean.
-- upload_prevented: reserved for a trusted enforcement component that positively confirms the request did not leave the endpoint.
+- upload_prevented: the extension confirmed that it stopped the supported attachment event before it was passed to the page. This is not proof that every possible provider upload or network path was blocked.
+- observed: the inspection result was recorded without a browser block.
 
-Do not label attachment selection as a successful leak. Do not label a finding as prevented without enforcement confirmation. This version scans on file selection and does not block the AI provider's upload request.
+Do not label attachment selection as a leak. Do not interpret a browser event block as network-wide enforcement.
 
 ## Attribution
 
-The initial agent reports local_os_account. This is not enterprise-verified identity. The dashboard must show the attribution source. Production should integrate device enrollment and an identity provider.
+The initial Agent reports local_os_account. This is device-session context, not enterprise-verified identity. A production deployment should integrate device trust and an identity provider.
 
 ## Production security requirements
 
-- per-agent credentials or mTLS with rotation and revocation;
+- HTTPS for all remote enrollment, policy retrieval and event delivery;
+- browser-store signing/publication or managed extension force-install;
+- signed installer and Agent binaries;
+- per-device credential rotation/revocation, rate limiting and replay protection;
 - OIDC/SAML and role-based dashboard access;
-- signed installer and agent binaries;
-- Native Messaging origin / allowed-extension allowlist;
-- access-controlled local spool, bounded queue, and replay protection;
-- database TLS, backups, retention, and audited administrator access;
-- request limits, schema validation, rate limiting, and integrity monitoring;
-- employee notice, purpose limitation, opt-in/consent model, and approved retention.
+- retention, deletion and audited administrator access;
+- database TLS, backups and least privilege;
+- employee notice, purpose limitation and approved retention.

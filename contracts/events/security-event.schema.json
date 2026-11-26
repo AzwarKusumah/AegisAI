@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://aegisai.dev/contracts/events/security-event.schema.json",
   "title": "AegisAI Security Event",
-  "description": "Metadata-only event. Raw content and matched values are forbidden.",
+  "description": "Metadata event. Original files and matched values are forbidden; an optional redacted preview may be included by explicit policy.",
   "type": "object",
   "additionalProperties": false,
   "required": ["event_id", "occurred_at", "actor", "device", "provider", "provider_domain", "event_type", "file", "inspection", "outcome", "enforcement"],
@@ -50,6 +50,10 @@
         "categories": {"type": "array", "items": {"type": "string", "maxLength": 64}, "maxItems": 50, "uniqueItems": true}
       }
     },
+    "policy_id": {"type": "string", "maxLength": 80},
+    "policy_name": {"type": "string", "maxLength": 120},
+    "policy_action": {"type": "string", "enum": ["block", "audit", "allow"]},
+    "redacted_preview": {"type": "string", "maxLength": 16000, "description": "Optional short preview with detected spans redacted locally; may still contain other confidential context."},
     "outcome": {"type": "string", "enum": ["observed", "prevented", "unknown"]},
     "enforcement": {
       "type": "object", "additionalProperties": false,

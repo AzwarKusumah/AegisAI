@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "AegisAI Protection",
-  "version": "0.4.0",
-  "description": "Opt-in local inspection of selected files on supported AI-provider pages.",
-  "permissions": ["nativeMessaging", "storage"],
+  "version": "0.5.0",
+  "description": "Applies local data-protection policies to file attachments on supported AI services.",
+  "permissions": ["nativeMessaging"],
   "action": { "default_popup": "popup.html" },
   "host_permissions": [
     "https://chatgpt.com/*", "https://claude.ai/*", "https://gemini.google.com/*",

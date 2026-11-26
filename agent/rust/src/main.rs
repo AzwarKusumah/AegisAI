@@ -1,3 +1,4 @@
+mod policy;
 mod protocol;
 mod spool;
 
@@ -5,6 +6,7 @@ use anyhow::{anyhow, Context, Result};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use chrono::{SecondsFormat, Utc};
+use policy::{evaluate as evaluate_policy, PolicyBundle, PolicyDecision};
 use protocol::{
     provider_id, read_message, validate_file_start, write_message, AgentMessage, Inspection,
     SecurityEvent, CHUNK_SIZE, MAX_FILE_SIZE,
@@ -48,6 +50,8 @@ struct ScanOutput {
     severity: String,
     #[serde(default)]
     categories: Vec<String>,
+    #[serde(default)]
+    redacted_preview: Option<String>,
 }
 
 fn setting(name: &str) -> Option<String> {
@@ -161,6 +165,7 @@ fn failed_inspection() -> Inspection {
         risk_score: 0,
         severity: "none".into(),
         categories: vec![],
+        redacted_preview: None,
     }
 }
 
@@ -233,10 +238,15 @@ fn scan_local_file(filename: &str, bytes: &[u8]) -> Result<Inspection> {
         risk_score: report.risk_score.min(100),
         severity,
         categories,
+        redacted_preview: report.redacted_preview.filter(|value| !value.trim().is_empty()).map(|value| value.chars().take(4000).collect()),
     })
 }
 
-fn build_event(file: &PendingFile, inspection: Inspection) -> Result<SecurityEvent> {
+fn build_event(
+    file: &PendingFile,
+    inspection: Inspection,
+    decision: &PolicyDecision,
+) -> Result<SecurityEvent> {
     let hostname = hostname::get()?.to_string_lossy().to_string();
     let username = whoami::username();
     let extension = PathBuf::from(&file.file_name)
@@ -245,9 +255,15 @@ fn build_event(file: &PendingFile, inspection: Inspection) -> Result<SecurityEve
         .unwrap_or("")
         .chars()
         .take(32)
-        .collect();
+        .collect::<String>()
+        .to_ascii_lowercase();
     let provider =
         provider_id(&file.provider_domain).ok_or_else(|| anyhow!("unsupported provider"))?;
+    let redacted_preview = if decision.share_redacted_preview {
+        inspection.redacted_preview.clone()
+    } else {
+        None
+    };
 
     Ok(SecurityEvent {
         event_id: Uuid::new_v4().to_string(),
@@ -281,7 +297,48 @@ fn build_event(file: &PendingFile, inspection: Inspection) -> Result<SecurityEve
             confirmed: false,
             component: "none".into(),
         },
+        policy_id: decision.policy_id.clone(),
+        policy_name: decision.policy_name.clone(),
+        policy_action: Some(decision.action.clone()),
+        redacted_preview,
     })
+}
+
+fn fetch_policy_bundle() -> Result<Option<PolicyBundle>> {
+    let base = match setting("AEGIS_CONTROL_PLANE_URL") {
+        Some(value) => value.trim_end_matches('/').to_owned(),
+        None => return Ok(None),
+    };
+    let token = match setting("AEGIS_AGENT_TOKEN") {
+        Some(value) => value,
+        None => return Ok(None),
+    };
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()?;
+    let response = client
+        .get(format!("{base}/api/v1/agent/policies"))
+        .bearer_auth(token)
+        .send()?
+        .error_for_status()?;
+    let bundle = response.json::<PolicyBundle>()?;
+    Ok(Some(bundle))
+}
+
+fn unavailable_policy_decision() -> PolicyDecision {
+    PolicyDecision {
+        action: "block".into(),
+        policy_id: None,
+        policy_name: None,
+        reason: "policy_service_unavailable".into(),
+        share_redacted_preview: false,
+    }
+}
+
+struct PendingResult {
+    file_id: String,
+    event: SecurityEvent,
+    decision: PolicyDecision,
 }
 
 fn forward_event(event: &SecurityEvent) -> &'static str {
@@ -314,6 +371,7 @@ fn forward_event(event: &SecurityEvent) -> &'static str {
 fn handle_message(
     message: AgentMessage,
     pending: &mut Option<PendingFile>,
+    completed: &mut Option<PendingResult>,
 ) -> Result<serde_json::Value> {
     match message {
         AgentMessage::FileStart {
@@ -324,7 +382,7 @@ fn handle_message(
             size_bytes,
             total_chunks,
         } => {
-            if pending.is_some() {
+            if pending.is_some() || completed.is_some() {
                 return Err(anyhow!("another file transfer is already active"));
             }
             validate_file_start(
@@ -392,17 +450,79 @@ fn handle_message(
                 Ok(value) => value,
                 Err(_) => failed_inspection(),
             };
-            let event = build_event(&transfer, inspection)?;
+            let provider = provider_id(&transfer.provider_domain)
+                .ok_or_else(|| anyhow!("unsupported provider"))?;
+            let extension = PathBuf::from(&transfer.file_name)
+                .extension()
+                .and_then(|value| value.to_str())
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            let decision = match fetch_policy_bundle() {
+                Ok(Some(bundle)) => evaluate_policy(
+                    &bundle,
+                    provider,
+                    &extension,
+                    inspection.status == "completed",
+                    &inspection.severity,
+                    inspection.risk_score,
+                    &inspection.categories,
+                ),
+                Ok(None) => PolicyDecision {
+                    action: "allow".into(),
+                    policy_id: None,
+                    policy_name: None,
+                    reason: "local_only_no_remote_policy".into(),
+                    share_redacted_preview: false,
+                },
+                Err(_) => unavailable_policy_decision(),
+            };
+            let event = build_event(&transfer, inspection, &decision)?;
+            let pending_result = PendingResult {
+                file_id: transfer.file_id.clone(),
+                event,
+                decision: decision.clone(),
+            };
             drop(transfer);
-            let event_json = serde_json::to_value(&event)?;
-            spool::append(&event_json)?;
-            let remote_delivery = forward_event(&event);
+            *completed = Some(pending_result);
             Ok(json!({
                 "type": "inspection_result",
-                "event_id": event.event_id,
-                "event_type": event.event_type,
-                "inspection": event.inspection,
-                "outcome": event.outcome,
+                "event_id": completed.as_ref().map(|item| item.event.event_id.clone()),
+                "inspection": completed.as_ref().map(|item| &item.event.inspection),
+                "decision": decision,
+                "requires_enforcement_ack": true
+            }))
+        }
+        AgentMessage::EnforcementResult { file_id, blocked } => {
+            let mut result = completed
+                .take()
+                .ok_or_else(|| anyhow!("no completed inspection is awaiting enforcement"))?;
+            if result.file_id != file_id {
+                *completed = Some(result);
+                return Err(anyhow!("enforcement result file identifier mismatch"));
+            }
+            if blocked && result.decision.action != "block" {
+                *completed = Some(result);
+                return Err(anyhow!("browser reported a block for a non-block decision"));
+            }
+            if !blocked && result.decision.action == "block" {
+                *completed = Some(result);
+                return Err(anyhow!("browser cannot continue an upload that policy blocked"));
+            }
+            if blocked {
+                result.event.event_type = "upload_prevented".into();
+                result.event.outcome = "prevented".into();
+                result.event.enforcement = protocol::Enforcement {
+                    confirmed: true,
+                    component: "browser".into(),
+                };
+            }
+            let event_json = serde_json::to_value(&result.event)?;
+            spool::append(&event_json)?;
+            let remote_delivery = forward_event(&result.event);
+            Ok(json!({
+                "type": "enforcement_recorded",
+                "event_id": result.event.event_id,
+                "outcome": result.event.outcome,
                 "remote_delivery": remote_delivery
             }))
         }
@@ -420,6 +540,7 @@ fn run() -> Result<()> {
     let mut reader = input.lock();
     let mut writer = output.lock();
     let mut pending: Option<PendingFile> = None;
+    let mut completed: Option<PendingResult> = None;
 
     loop {
         let mut frame = match read_message(&mut reader, MAX_MESSAGE_BYTES)? {
@@ -429,15 +550,17 @@ fn run() -> Result<()> {
         let parsed = serde_json::from_slice::<AgentMessage>(&frame)
             .context("invalid Native Messaging message");
         let response = match parsed {
-            Ok(message) => match handle_message(message, &mut pending) {
+            Ok(message) => match handle_message(message, &mut pending, &mut completed) {
                 Ok(value) => value,
                 Err(_) => {
                     pending = None;
+                    completed = None;
                     json!({"type":"error","code":"inspection_message_rejected"})
                 }
             },
             Err(_) => {
                 pending = None;
+                completed = None;
                 json!({"type":"error","code":"inspection_message_rejected"})
             }
         };

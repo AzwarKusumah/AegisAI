@@ -24,6 +24,7 @@ class InspectionResult:
     complete: bool = True
     errors: tuple[str, ...] = ()
     source_name: str | None = None
+    redacted_preview: str | None = None
 
     def to_dict(self):
         severity_rank = {"none": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
@@ -41,6 +42,7 @@ class InspectionResult:
             "risk_score": self.risk_score,
             "complete": self.complete,
             "errors": list(self.errors),
+            "redacted_preview": self.redacted_preview,
         }
 
 class DetectorRegistry:
@@ -60,7 +62,7 @@ class SecretDetector:
     name = "builtin-secrets"
     RULES = [
         ("aws-access-key", "cloud_credential", re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "critical", .99),
-        ("private-key-header", "private_key", re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"), "critical", 1.0),
+        ("private-key-block", "private_key", re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----.*?-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----", re.DOTALL), "critical", 1.0),
         ("github-token", "source_control_credential", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}\b"), "critical", .99),
         ("credential-assignment", "credential", re.compile(r"(?im)\b[A-Za-z0-9_]*(?:password|passwd|pwd|api[_-]?key|secret[_-]?key|access[_-]?token)\s*[:=]\s*[^\s;]{8,}"), "high", .90),
     ]
@@ -86,6 +88,22 @@ class PIIDetector:
             for rule, category, pattern, severity, confidence in self.RULES
             for match in pattern.finditer(text)
         ]
+
+def _redact_preview(text: str, findings: tuple[Finding, ...], limit: int = 1400) -> str:
+    snippet = text[:limit]
+    spans = []
+    cursor = 0
+    for finding in sorted(findings, key=lambda item: (item.start, -(item.end - item.start))):
+        start = max(0, finding.start)
+        end = min(len(snippet), finding.end)
+        if start < cursor or end <= start:
+            continue
+        spans.append((start, end, finding.category))
+        cursor = end
+    for start, end, category in reversed(spans):
+        snippet = snippet[:start] + f"[REDACTED:{category}]" + snippet[end:]
+    return snippet.strip()
+
 
 def score_findings(findings):
     weights = {"low": 20, "medium": 40, "high": 70, "critical": 100}
@@ -122,13 +140,17 @@ class InspectionEngine:
         except (ExtractionError, ValueError, TypeError):
             return InspectionResult((), 0, False, ("extraction_failed",), filename)
 
-        findings, errors = [], []
+        findings, errors, previews = [], [], []
         for document_name, text in documents:
             result = self.inspect_text(text, document_name)
             findings.extend(result.findings)
             errors.extend(result.errors)
+            safe_preview = _redact_preview(text, result.findings)
+            if safe_preview:
+                previews.append(f"[{document_name}]\\n{safe_preview}")
         findings.sort(key=lambda item: (item.start, item.end, item.rule_id, item.detector))
-        return InspectionResult(tuple(findings), score_findings(findings), not errors, tuple(errors), filename)
+        preview = "\\n\\n".join(previews)[:4000] or None
+        return InspectionResult(tuple(findings), score_findings(findings), not errors, tuple(errors), filename, preview)
 
     def inspect_file(self, path: str | Path) -> InspectionResult:
         file_path = Path(path)

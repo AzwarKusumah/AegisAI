@@ -54,6 +54,10 @@ type SecurityEvent struct {
 	Inspection Inspection `json:"inspection"`
 	Outcome string `json:"outcome"`
 	Enforcement Enforcement `json:"enforcement"`
+	PolicyID string `json:"policy_id,omitempty"`
+	PolicyName string `json:"policy_name,omitempty"`
+	PolicyAction string `json:"policy_action,omitempty"`
+	RedactedPreview string `json:"redacted_preview,omitempty"`
 }
 
 func (e SecurityEvent) Validate() error {
@@ -75,5 +79,7 @@ func (e SecurityEvent) Validate() error {
 	if e.Enforcement.Component != "none" && e.Enforcement.Component != "browser" && e.Enforcement.Component != "agent" && e.Enforcement.Component != "network_gateway" { return errors.New("invalid enforcement component") }
 	if e.Outcome == "prevented" && (!e.Enforcement.Confirmed || e.Enforcement.Component == "none") { return errors.New("prevented outcome requires confirmed enforcement") }
 	if e.EventType == "upload_prevented" && e.Outcome != "prevented" { return errors.New("upload_prevented requires prevented outcome") }
+	if e.PolicyAction != "" && e.PolicyAction != "block" && e.PolicyAction != "audit" && e.PolicyAction != "allow" { return errors.New("invalid policy action") }
+	if len(e.PolicyID) > 80 || len(e.PolicyName) > 120 || len(e.RedactedPreview) > 16000 { return errors.New("policy or redacted preview metadata exceeds its limit") }
 	return nil
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/AzwarKusumah/AegisAI/services/control-plane/internal/events"
+	"github.com/AzwarKusumah/AegisAI/services/control-plane/internal/policies"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -22,7 +23,9 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 	db.SetMaxOpenConns(20); db.SetMaxIdleConns(5); db.SetConnMaxLifetime(30*time.Minute)
 	if err := db.PingContext(ctx); err != nil { db.Close(); return nil, err }
 	if _, err := db.ExecContext(ctx, schema); err != nil { db.Close(); return nil, fmt.Errorf("initialize schema: %w", err) }
-	return &Store{db: db}, nil
+	store := &Store{db: db}
+	if err := store.ensureDefaultPolicies(ctx); err != nil { db.Close(); return nil, fmt.Errorf("initialize default DLP policies: %w", err) }
+	return store, nil
 }
 func (s *Store) Close() error { return s.db.Close() }
 
@@ -38,7 +41,9 @@ const schema = "CREATE TABLE IF NOT EXISTS security_events (" +
 	"CREATE INDEX IF NOT EXISTS idx_agent_pairing_codes_expiry ON agent_pairing_codes (expires_at);" +
 	"CREATE TABLE IF NOT EXISTS managed_devices (device_id TEXT PRIMARY KEY, hostname TEXT NOT NULL, os TEXT NOT NULL, username TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', token_hash TEXT NOT NULL UNIQUE, enrolled_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), last_seen_at TIMESTAMPTZ);" +
 	"CREATE INDEX IF NOT EXISTS idx_managed_devices_status ON managed_devices (status);" +
-	"CREATE INDEX IF NOT EXISTS idx_managed_devices_last_seen ON managed_devices (last_seen_at DESC);"
+	"CREATE INDEX IF NOT EXISTS idx_managed_devices_last_seen ON managed_devices (last_seen_at DESC);" +
+	"CREATE TABLE IF NOT EXISTS dlp_policies (id TEXT PRIMARY KEY, enabled BOOLEAN NOT NULL, priority INTEGER NOT NULL, policy_json JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());" +
+	"CREATE INDEX IF NOT EXISTS idx_dlp_policies_order ON dlp_policies (enabled, priority, updated_at DESC);"
 
 func (s *Store) Insert(ctx context.Context, event events.SecurityEvent) error {
 	payload, err := json.Marshal(event); if err != nil { return err }
@@ -105,4 +110,94 @@ func (s *Store) RevokeDevice(ctx context.Context, deviceID string) error {
 func (s *Store) TouchDevice(ctx context.Context, deviceID string) error {
 	_, err := s.db.ExecContext(ctx, "UPDATE managed_devices SET last_seen_at=NOW() WHERE device_id=$1 AND status='active'", deviceID)
 	return err
+}
+
+func (s *Store) ensureDefaultPolicies(ctx context.Context) error {
+	var count int
+	if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM dlp_policies").Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+	defaults := []policies.Policy{
+		{
+			ID: "baseline-block-credentials", Name: "Block exposed credentials",
+			Description: "Block supported browser attachment events when they contain cloud keys, private keys, source-control credentials, or credential assignments.",
+			Enabled: true, Priority: 10, Action: "block", MinSeverity: "high", MinRiskScore: 70,
+			Categories: []string{"cloud_credential", "private_key", "source_control_credential", "credential"},
+		},
+		{
+			ID: "baseline-audit-personal-data", Name: "Audit personal data",
+			Description: "Record personal-data findings for review without interrupting the upload.",
+			Enabled: true, Priority: 100, Action: "audit", MinSeverity: "medium", MinRiskScore: 35,
+			Categories: []string{"email", "phone", "national_identifier"},
+		},
+	}
+	for _, policy := range defaults {
+		if err := s.SavePolicy(ctx, policy); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) ListPolicies(ctx context.Context, enabledOnly bool) ([]policies.Policy, error) {
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT policy_json FROM dlp_policies WHERE ($1 = FALSE OR enabled = TRUE) ORDER BY priority ASC, updated_at DESC",
+		enabledOnly)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]policies.Policy, 0)
+	for rows.Next() {
+		var raw []byte
+		var item policies.Policy
+		if err := rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(raw, &item); err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) SavePolicy(ctx context.Context, item policies.Policy) error {
+	item.UpdatedAt = time.Now().UTC()
+	if item.Categories == nil { item.Categories = []string{} }
+	if item.Providers == nil { item.Providers = []string{} }
+	if item.Extensions == nil { item.Extensions = []string{} }
+	if item.Exceptions == nil { item.Exceptions = []policies.PolicyException{} }
+	for index := range item.Exceptions {
+		if item.Exceptions[index].Categories == nil { item.Exceptions[index].Categories = []string{} }
+		if item.Exceptions[index].Providers == nil { item.Exceptions[index].Providers = []string{} }
+		if item.Exceptions[index].Extensions == nil { item.Exceptions[index].Extensions = []string{} }
+	}
+	raw, err := json.Marshal(item)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx,
+		"INSERT INTO dlp_policies (id, enabled, priority, policy_json, updated_at) VALUES ($1,$2,$3,$4::jsonb,$5) "+
+			"ON CONFLICT (id) DO UPDATE SET enabled=EXCLUDED.enabled, priority=EXCLUDED.priority, policy_json=EXCLUDED.policy_json, updated_at=EXCLUDED.updated_at",
+		item.ID, item.Enabled, item.Priority, string(raw), item.UpdatedAt)
+	return err
+}
+
+func (s *Store) DeletePolicy(ctx context.Context, id string) error {
+	result, err := s.db.ExecContext(ctx, "DELETE FROM dlp_policies WHERE id=$1", id)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }

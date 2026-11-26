@@ -2,6 +2,9 @@ import { providerForHost } from "./providers";
 
 const CHUNK_BYTES = 256 * 1024;
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
+const allowedChanges = new WeakSet<HTMLInputElement>();
+const allowedDrops = new WeakSet<EventTarget>();
+const allowedPastes = new WeakSet<EventTarget>();
 
 function toBase64(bytes: Uint8Array): string {
   let binary = "";
@@ -13,99 +16,90 @@ function toBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-function showInspectionAlert(fileName: string, inspection: {
-  status?: string; risk_score?: number; severity?: string; categories?: string[];
-}) {
-  document.getElementById("aegisai-inspection-alert")?.remove();
+function showNotice(title: string, message: string, blocked: boolean) {
+  document.getElementById("aegisai-policy-notice")?.remove();
   const root = document.createElement("div");
-  root.id = "aegisai-inspection-alert";
+  root.id = "aegisai-policy-notice";
   const shadow = root.attachShadow({ mode: "closed" });
-  const severity = inspection.severity ?? "none";
-  const risky = ["high", "critical"].includes(severity);
-  const categories = (inspection.categories ?? []).slice(0, 8);
-  const heading = risky ? "Sensitive data detected" : categories.length ? "Potentially sensitive data detected" : "Inspection complete";
-  const card = document.createElement("section");
-  card.style.setProperty("--alert-border", risky ? "#ef4444" : categories.length ? "#d97706" : "#0d9488");
   const style = document.createElement("style");
-  style.textContent = [
-    ":host{all:initial}",
-    "section{position:fixed;z-index:2147483647;right:22px;bottom:22px;width:min(370px,calc(100vw - 32px));box-sizing:border-box;padding:17px;border:1px solid var(--alert-border);border-left:4px solid var(--alert-border);border-radius:12px;background:#101827;color:#edf3fb;box-shadow:0 18px 55px #0009;font:13px/1.5 Inter,Segoe UI,system-ui,sans-serif}",
-    ".top{display:flex;align-items:center;justify-content:space-between;gap:12px}",
-    "h2{font-size:14px;margin:0;font-weight:700}",
-    ".tag{font-size:9px;text-transform:uppercase;letter-spacing:1px;padding:3px 7px;border-radius:20px;background:#263449;color:#f8fafc}",
-    "p{font-size:11px;color:#b7c5d8;margin:9px 0 0;overflow-wrap:anywhere}",
-    ".meta{display:flex;gap:12px;margin-top:12px;font-size:11px;color:#dce7f5}",
-    ".categories{display:flex;flex-wrap:wrap;gap:5px;margin-top:11px}",
-    ".chip{font-size:10px;padding:3px 7px;border-radius:5px;background:#263449;color:#d8e6f6}",
-    "button{float:right;margin-top:12px;border:1px solid #41536b;border-radius:6px;padding:5px 10px;color:#edf3fb;background:#1c293d;cursor:pointer}",
-    "button:focus-visible{outline:2px solid #67e8f9;outline-offset:2px}"
-  ].join("\n");
-  const top = document.createElement("div");
-  top.className = "top";
-  const title = document.createElement("h2");
-  title.textContent = heading;
-  const tag = document.createElement("span");
-  tag.className = "tag";
-  tag.textContent = severity;
-  top.append(title, tag);
-  const file = document.createElement("p");
-  file.textContent = fileName;
-  const detail = document.createElement("div");
-  detail.className = "meta";
-  const score = document.createElement("span");
-  score.textContent = "Risk score: " + String(inspection.risk_score ?? 0) + "/100";
-  const state = document.createElement("span");
-  state.textContent = inspection.status === "completed" ? "Scan completed" : "Scan incomplete";
-  detail.append(score, state);
-  const chips = document.createElement("div");
-  chips.className = "categories";
-  for (const category of categories) {
-    const chip = document.createElement("span");
-    chip.className = "chip";
-    chip.textContent = category.replace(/_/g, " ");
-    chips.append(chip);
-  }
-  const note = document.createElement("p");
-  note.textContent = risky
-    ? "Review this attachment before sending. AegisAI has not blocked the provider upload."
-    : "This is an inspection result only. AegisAI has not blocked the provider upload.";
+  style.textContent = `
+    :host{all:initial}
+    section{position:fixed;z-index:2147483647;right:20px;bottom:20px;width:min(360px,calc(100vw - 32px));box-sizing:border-box;padding:16px 18px;border:1px solid ${blocked ? "#b85c51" : "#a8b1ad"};border-left:3px solid ${blocked ? "#b85c51" : "#456d60"};background:#fbfbf8;color:#202824;box-shadow:0 12px 34px #18231d22;font:14px/1.5 "Segoe UI",Arial,sans-serif}
+    .heading{display:flex;align-items:center;gap:9px;font-weight:650;font-size:14px}
+    .dot{width:8px;height:8px;border-radius:50%;background:${blocked ? "#b85c51" : "#456d60"}}
+    p{margin:7px 0 0;color:#5c6660;font-size:12px;overflow-wrap:anywhere}
+    button{margin-top:12px;padding:6px 10px;border:1px solid #c8cfca;background:transparent;color:#202824;font:inherit;font-size:12px;cursor:pointer}
+    button:focus-visible{outline:2px solid #456d60;outline-offset:2px}
+  `;
+  const card = document.createElement("section");
+  const heading = document.createElement("div");
+  heading.className = "heading";
+  const dot = document.createElement("span");
+  dot.className = "dot";
+  const label = document.createElement("span");
+  label.textContent = title;
+  heading.append(dot, label);
+  const detail = document.createElement("p");
+  detail.textContent = message;
   const close = document.createElement("button");
   close.type = "button";
-  close.textContent = "Dismiss";
+  close.textContent = "Close";
   close.addEventListener("click", () => root.remove());
-  card.append(top, file, detail, chips, note, close);
+  card.append(heading, detail, close);
   shadow.append(style, card);
   document.documentElement.append(root);
-  window.setTimeout(() => root.remove(), 15000);
+  window.setTimeout(() => root.remove(), 12000);
 }
 
-function inspectFile(file: File, providerDomain: string): Promise<void> {
+function inspectFile(file: File, providerDomain: string): Promise<boolean> {
   return new Promise((resolve) => {
     const fileId = crypto.randomUUID();
     const totalChunks = Math.ceil(file.size / CHUNK_BYTES);
-    const port = chrome.runtime.connect({ name: "aegisai-inspection" });
     let settled = false;
-    const finish = () => {
+    let blocked = true;
+    let enforcementSent = false;
+    const port = chrome.runtime.connect({ name: "aegisai-inspection" });
+    const finish = (result: boolean) => {
       if (settled) return;
       settled = true;
-      try { port.disconnect(); } catch { /* already disconnected */ }
-      resolve();
+      try { port.disconnect(); } catch { /* port already closed */ }
+      resolve(result);
     };
+
     port.onMessage.addListener((message) => {
       if (message?.type === "inspection_result") {
-        console.info("[AegisAI] Local inspection completed:", {
-          event_id: message.event_id, status: message.inspection?.status,
-          risk_score: message.inspection?.risk_score, severity: message.inspection?.severity
-        });
-        showInspectionAlert(file.name, message.inspection ?? {});
-        finish();
+        const decision = message.decision;
+        blocked = !decision || decision.action === "block" ||
+          (decision.action !== "allow" && decision.action !== "audit");
+        const reason = decision?.reason === "policy_service_unavailable"
+          ? "The policy service could not be reached. The file was kept in the browser."
+          : decision?.reason === "inspection_failed_fail_closed"
+            ? "The document could not be inspected. The active policy keeps uninspected files from being sent."
+            : decision?.policy_name
+              ? "Matched policy: " + String(decision.policy_name)
+              : "No blocking policy matched this file.";
+        if (blocked) showNotice("Upload stopped by policy", file.name + " · " + reason, true);
+        else if (decision?.action === "audit") showNotice("File checked", file.name + " · Recorded for review; upload may continue.", false);
+        try {
+          port.postMessage({ type: "enforcement_result", file_id: fileId, blocked });
+          enforcementSent = true;
+        } catch {
+          finish(true);
+        }
+      } else if (message?.type === "enforcement_recorded") {
+        finish(blocked);
       } else if (message?.type === "error") {
-        console.warn("[AegisAI] Local inspection could not be completed.");
-        showInspectionAlert(file.name, { status: "failed", severity: "none", risk_score: 0, categories: [] });
-        finish();
+        showNotice("Upload stopped", "Local inspection could not complete. The file was not passed to the page.", true);
+        finish(true);
       }
     });
-    port.onDisconnect.addListener(finish);
+    port.onDisconnect.addListener(() => {
+      if (!settled) {
+        if (!enforcementSent) showNotice("Upload stopped", "The local inspection agent disconnected. The file was not passed to the page.", true);
+        finish(true);
+      }
+    });
+
     void (async () => {
       try {
         port.postMessage({
@@ -123,30 +117,91 @@ function inspectFile(file: File, providerDomain: string): Promise<void> {
         }
         port.postMessage({ type: "file_end", file_id: fileId });
       } catch {
-        console.warn("[AegisAI] Could not read or stream the selected file locally.");
-        finish();
+        showNotice("Upload stopped", "The file could not be read for local inspection.", true);
+        finish(true);
       }
     })();
   });
 }
 
+async function inspectFiles(files: File[], providerDomain: string): Promise<boolean> {
+  for (const file of files) {
+    if (file.size > MAX_FILE_BYTES) {
+      showNotice("Upload stopped", file.name + " exceeds the 10 MiB local inspection limit.", true);
+      return true;
+    }
+    if (await inspectFile(file, providerDomain)) return true;
+  }
+  return false;
+}
+
 const provider = providerForHost(window.location.hostname);
 if (provider) {
   document.addEventListener("change", (event) => {
+    const input = event.target;
+    if (!(input instanceof HTMLInputElement) || input.type !== "file" || !input.files) return;
+    if (allowedChanges.has(input)) {
+      allowedChanges.delete(input);
+      return;
+    }
+    const files = Array.from(input.files);
+    if (!files.length) return;
+
+    // Stop the provider's original change handlers until the local policy decision is known.
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    void (async () => {
+      const blocked = await inspectFiles(files, provider.domain);
+      if (blocked) {
+        input.value = "";
+        return;
+      }
+      allowedChanges.add(input);
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    })();
+  }, true);
+
+  document.addEventListener("drop", (event) => {
     const target = event.target;
-    if (!(target instanceof HTMLInputElement) || target.type !== "file" || !target.files) return;
-    const selectedFiles = Array.from(target.files);
-    chrome.storage.local.get({ inspectionEnabled: false }, (settings) => {
-      if (!settings.inspectionEnabled) return;
-      void (async () => {
-        for (const file of selectedFiles.slice(0, 5)) {
-          if (file.size > MAX_FILE_BYTES) {
-            console.warn("[AegisAI] File skipped: local inspection limit is 10 MiB.");
-            continue;
-          }
-          await inspectFile(file, provider.domain);
-        }
-      })();
-    });
+    const transfer = (event as DragEvent).dataTransfer;
+    const files = transfer ? Array.from(transfer.files) : [];
+    if (!target || !files.length) return;
+    if (allowedDrops.has(target)) {
+      allowedDrops.delete(target);
+      return;
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    void (async () => {
+      if (await inspectFiles(files, provider.domain)) return;
+      const replayTransfer = new DataTransfer();
+      for (const file of files) replayTransfer.items.add(file);
+      allowedDrops.add(target);
+      target.dispatchEvent(new DragEvent("drop", {
+        bubbles: true, cancelable: true, dataTransfer: replayTransfer
+      }));
+    })();
+  }, true);
+
+  document.addEventListener("paste", (event) => {
+    const target = event.target;
+    const clipboard = (event as ClipboardEvent).clipboardData;
+    const files = clipboard ? Array.from(clipboard.files) : [];
+    if (!target || !files.length) return;
+    if (allowedPastes.has(target)) {
+      allowedPastes.delete(target);
+      return;
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    void (async () => {
+      if (await inspectFiles(files, provider.domain)) return;
+      const replayTransfer = new DataTransfer();
+      for (const file of files) replayTransfer.items.add(file);
+      allowedPastes.add(target);
+      target.dispatchEvent(new ClipboardEvent("paste", {
+        bubbles: true, cancelable: true, clipboardData: replayTransfer
+      }));
+    })();
   }, true);
 }

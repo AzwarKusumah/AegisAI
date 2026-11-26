@@ -19,11 +19,11 @@ export default function LoginPage() {
         body: JSON.stringify({ username, password })
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error === "invalid_credentials" ? "Username atau password salah." : "Login tidak dapat diproses.");
+      if (!response.ok) throw new Error(data.error === "invalid_credentials" ? "Username or password is incorrect." : "Sign-in could not be completed.");
       const next = new URLSearchParams(window.location.search).get("next");
       window.location.assign(next?.startsWith("/") && !next.startsWith("//") ? next : "/");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Login gagal.");
+      setError(reason instanceof Error ? reason.message : "Sign-in failed.");
     } finally {
       setBusy(false);
     }
@@ -31,17 +31,17 @@ export default function LoginPage() {
 
   return <main className="loginShell">
     <section className="loginCard">
-      <div className="brand loginBrand"><span className="brandMark">A</span><span>AegisAI<small>SECURITY CONSOLE</small></span></div>
-      <p className="eyebrow">SELF-HOSTED SECURITY PLATFORM</p>
-      <h1>Welcome back</h1>
-      <p className="subhead">Sign in to manage devices, inspection events, and endpoint policies.</p>
+      <a className="brand loginBrand" href="/"><span className="brandMark">A</span><span>AegisAI<small>Data protection</small></span></a>
+      <p className="eyebrow">Administrator access</p>
+      <h1>Sign in</h1>
+      <p className="subhead">Manage endpoint activity, sensitive-data policies, and connected computers.</p>
       <form onSubmit={submit} className="loginForm">
         <label>Username<input autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} required /></label>
         <label>Password<input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
         {error && <p className="formError" role="alert">{error}</p>}
-        <button type="submit" disabled={busy}>{busy ? "Signing in..." : "Sign in"}</button>
+        <button type="submit" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
       </form>
-      <p className="loginFoot">Credentials are configured by the server administrator.</p>
+      <p className="loginFoot">Access is managed by your AegisAI server administrator.</p>
     </section>
   </main>;
 }

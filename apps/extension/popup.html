@@ -5,30 +5,44 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AegisAI Protection</title>
   <style>
-    :root{color-scheme:dark;font-family:Inter,system-ui,sans-serif;background:#0b1020;color:#edf3fb}
-    body{width:300px;margin:0;padding:18px;box-sizing:border-box}
-    h1{font-size:16px;margin:0 0 5px}
-    p{font-size:11px;line-height:1.55;color:#aab8cb;margin:8px 0}
-    .brand{display:flex;align-items:center;gap:9px;margin-bottom:18px}
-    .mark{width:30px;height:30px;border-radius:8px;background:#164e63;color:#a5f3fc;display:grid;place-items:center;font-weight:800}
-    .state{display:flex;justify-content:space-between;align-items:center;border:1px solid #263650;background:#111a2d;padding:12px;border-radius:9px;margin:14px 0}
-    label{font-size:12px;font-weight:650}
-    input{accent-color:#5eead4;width:18px;height:18px}
-    .notice{border-left:2px solid #d6a84d;padding-left:10px}
-    .status{font-size:10px;color:#5eead4;margin-top:12px;min-height:14px}
-    .foot{border-top:1px solid #263650;margin-top:15px;padding-top:11px;font-size:9px;color:#788ba5}
+    :root{color-scheme:light;font-family:"Segoe UI",Arial,sans-serif;background:#f8f8f5;color:#202823}
+    *{box-sizing:border-box}
+    body{width:324px;margin:0;padding:20px}
+    .brand{display:flex;align-items:center;gap:10px;padding-bottom:17px;border-bottom:1px solid #dfe3de}
+    .mark{width:30px;height:30px;display:grid;place-items:center;background:#243d34;color:#f8f8f5;font-size:15px;font-weight:700}
+    .brand-name{font-size:15px;font-weight:650;letter-spacing:-.2px}
+    .brand-sub{display:block;color:#6c766f;font-size:11px;margin-top:2px}
+    .state{display:flex;align-items:center;gap:10px;margin:18px 0 8px}
+    .state-dot{width:9px;height:9px;background:#3c8060;border-radius:50%;box-shadow:0 0 0 3px #3c80601a}
+    .state-title{font-size:14px;font-weight:650}
+    p{font-size:12px;line-height:1.6;color:#59645c;margin:8px 0}
+    .section{margin-top:17px;padding-top:14px;border-top:1px solid #dfe3de}
+    .section-title{font-size:11px;color:#6c766f;margin-bottom:10px}
+    .sites{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px}
+    .site{font-size:12px;color:#29352e}
+    .foot{margin-top:18px;padding-top:12px;border-top:1px solid #dfe3de;font-size:11px;color:#6c766f;line-height:1.55}
   </style>
 </head>
 <body>
-  <div class="brand"><div class="mark">A</div><div><h1>AegisAI Protection</h1><p>Local AI data inspection</p></div></div>
-  <div class="state">
-    <label for="enabled">Inspect selected AI attachments</label>
-    <input id="enabled" type="checkbox">
-  </div>
-  <p class="notice">When enabled, AegisAI reads selected file bytes and scans them locally on this device. The raw file and matched text are not sent to the AegisAI server.</p>
-  <p>Only event metadata, risk score, and finding categories are sent to your configured control plane. Uploads are not blocked by this version.</p>
-  <div id="status" class="status" role="status"></div>
-  <div class="foot">Inspection is off by default. You can disable it here at any time.</div>
-  <script src="popup.js"></script>
+  <header class="brand">
+    <div class="mark" aria-hidden="true">A</div>
+    <div><div class="brand-name">AegisAI</div><span class="brand-sub">Browser protection</span></div>
+  </header>
+  <section aria-live="polite">
+    <div class="state"><span class="state-dot"></span><span class="state-title">Protection is on</span></div>
+    <p>Attachments are inspected on this device before supported AI pages receive them. Organization policies decide whether a file can continue.</p>
+  </section>
+  <section class="section">
+    <div class="section-title">Supported services</div>
+    <div class="sites">
+      <span class="site">ChatGPT</span>
+      <span class="site">Claude</span>
+      <span class="site">Gemini</span>
+      <span class="site">Microsoft Copilot</span>
+      <span class="site">Perplexity</span>
+      <span class="site">Grok</span>
+    </div>
+  </section>
+  <footer class="foot">Original files and detected values stay on this device. The control plane receives inspection results and policy outcomes.</footer>
 </body>
 </html>

@@ -1,37 +1,42 @@
 # Architecture Overview
 
-AegisAI uses a modular-monolith control plane with separately deployable endpoint and browser components. Content inspection runs locally. The control plane receives metadata and finding categories, never file bytes or extracted content.
+AegisAI uses a self-hosted control plane with separate endpoint and browser components. Document extraction and content matching run on each endpoint. The server receives event metadata, policy decisions, and an optional short redacted preview only when an administrator explicitly enables that feature.
 
 ## Components
 
-1. Browser extension observes supported AI-provider file inputs. Inspection is explicitly opt-in and disabled by default. When enabled, the extension reads selected File objects in memory and streams bounded chunks to the local agent.
-2. Rust endpoint agent validates browser Native Messaging input, provider domain, basename, chunk order, and size limit. It buffers one file in memory, zeroizes the buffer after use, invokes the local Python inspector through stdin, enriches the result with device and OS-account context, writes a metadata-only local spool, and optionally forwards the event.
-3. Python detection engine performs local extraction and secret/PII detection. It returns finding rule IDs, categories, severity, confidence, and offsets only; no matched value or extracted text is returned.
-4. Go control plane authenticates metadata event ingestion, validates fields, persists events in PostgreSQL, and exposes audit queries.
-5. Next.js dashboard displays the file metadata, actor/device, provider, inspection status, risk score, and categories. Admin credentials remain server-side.
+1. Browser extension observes supported AI-provider file input, drop and paste events. Before passing the standard event to the page, it transfers selected files to the local Native Messaging Agent.
+2. Rust endpoint Agent validates Native Messaging input, provider domain, basename, chunk order and size limit. It buffers one file in memory, invokes the local Python inspector through stdin, retrieves the enrolled device's current policy set, evaluates it and returns the decision to the extension.
+3. Python detection engine extracts supported file formats and runs built-in secret and PII classifiers. Finding spans are used to redact an optional preview; matched values are never included as finding metadata.
+4. Go Control Plane handles one-use device enrollment, device token revocation, policy CRUD and per-device policy distribution, event validation and audit queries.
+5. Next.js Dashboard exposes activity, file records, endpoint devices and policy administration. It displays a redacted preview only when the policy explicitly permits it.
+
+## Policy evaluation
+
+A policy contains classifiers (content categories), scope/resource constraints (AI provider and file extension), rule conditions (minimum severity and risk), exceptions, priority and a remediation action (block, audit or allow).
+
+Enabled policies are sorted by ascending priority. The first matching policy decides the action. A matching exception exempts that policy. The Control Plane returns fail_closed=true; enrolled agents block when a policy cannot be fetched or inspection is incomplete.
+
+The initial database startup seeds two editable policies:
+- Block high-severity cloud credentials, private keys, source-control tokens and credential assignments.
+- Audit medium-or-higher personal data findings.
 
 ## Event lifecycle
 
-User enables local scanning -> file selected in supported AI page -> extension sends 256 KiB chunks through Native Messaging -> Rust agent validates transfer -> Python scans stdin bytes locally -> Rust produces metadata-only event -> local spool -> authenticated control-plane ingestion -> PostgreSQL -> dashboard.
+Browser attachment event -> local file extraction and classification -> device policy fetch/evaluation -> extension event gate -> enforcement acknowledgement -> local spool -> authenticated Control Plane event ingestion -> PostgreSQL -> Dashboard.
 
-The current event is inspection_completed when local inspection succeeds, or unknown when inspection cannot complete. Neither means the file was successfully uploaded. The agent does not cancel or block the provider's network request.
-
-## Identity
-
-The agent reports the current operating-system username with identity_source local_os_account. This is device-session context, not proof of the identity authenticated to the AI application. A future OIDC/SAML or managed-device integration must map endpoint activity to a verified organization principal.
+An upload_prevented event means the extension confirms that it stopped the supported browser attachment event before it was passed to the page. It does not prove all alternative network or upload paths were blocked.
 
 ## Trust boundaries
 
-- Browser pages are untrusted; sender origin is checked by extension background and native host registration.
-- Only explicitly enabled extension sessions read selected file bytes.
-- Native Messaging is restricted by exact Chromium extension origin or Firefox allowed_extensions manifest.
-- Rust accepts one bounded file transfer at a time, up to 10 MiB, with ordered chunks.
-- Python receives the bytes through stdin; no temporary file copy is created.
-- Control-plane events contain only bounded metadata and detector categories.
-- Agent ingestion and admin queries use separate credentials.
-- Dashboard tokens are stored server-side.
-- PostgreSQL requires network segmentation, least privilege, backups, and retention controls.
+- Browser pages and provider DOMs are untrusted and can change.
+- The extension only runs on the allowlisted provider origins.
+- Native Messaging host registration is restricted to the extension origin.
+- The Agent holds one bounded file transfer at a time (10 MiB maximum) and zeroizes its transfer buffer after processing.
+- Original file bytes and raw matches stay on the endpoint.
+- Optional preview text is redacted locally and transmitted only when a matching policy enables it.
+- Device tokens are individually scoped and revocable; the Control Plane stores only hashes.
+- Dashboard API credentials remain server-side.
 
 ## Not included
 
-No browser request interception, upload blocking, clipboard monitoring, TLS interception, kernel filtering, desktop-app traffic control, SSO, policy distribution, or production identity management.
+No browser network interception, TLS interception, kernel filtering, desktop-app upload control, OCR, file/database fingerprinting, label integration, ML training, drip/cumulative policies, enterprise identity mapping or a managed extension deployment channel. This build is an early browser DLP control, not a full enterprise DLP gateway.

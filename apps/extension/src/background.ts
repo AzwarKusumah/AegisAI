@@ -45,7 +45,7 @@ chrome.runtime.onConnect.addListener((contentPort) => {
 
   contentPort.onMessage.addListener((message) => {
     const type = message?.type;
-    if (type !== "file_start" && type !== "file_chunk" && type !== "file_end") {
+    if (type !== "file_start" && type !== "file_chunk" && type !== "file_end" && type !== "enforcement_result") {
       contentPort.postMessage({ type: "error", code: "unsupported_message" });
       disconnectBoth();
       return;

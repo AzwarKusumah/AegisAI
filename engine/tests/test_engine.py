@@ -35,3 +35,10 @@ def test_non_bytes_rejected():
     except TypeError:
         return
     raise AssertionError("expected TypeError")
+
+def test_redacted_preview_hides_detected_secret_values():
+    secret = "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE"
+    result = create_default_engine(include_gitleaks=False).inspect_bytes(secret.encode(), "settings.env")
+    assert result.redacted_preview
+    assert "AKIAIOSFODNN7EXAMPLE" not in result.redacted_preview
+    assert "[REDACTED:cloud_credential]" in result.redacted_preview
