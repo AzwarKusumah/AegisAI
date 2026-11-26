@@ -68,7 +68,11 @@ fn setting(name: &str) -> Option<String> {
     let config_path = dirs::config_dir()?.join("AegisAI").join("config.json");
     let raw = std::fs::read(config_path).ok()?;
     let config: serde_json::Value = serde_json::from_slice(&raw).ok()?;
-    config.get(key)?.as_str().map(str::to_owned).filter(|value| !value.trim().is_empty())
+    config
+        .get(key)?
+        .as_str()
+        .map(str::to_owned)
+        .filter(|value| !value.trim().is_empty())
 }
 
 fn python_executable() -> String {
@@ -86,7 +90,11 @@ fn python_executable() -> String {
             }
         }
     }
-    if cfg!(target_os = "windows") { "python".into() } else { "python3".into() }
+    if cfg!(target_os = "windows") {
+        "python".into()
+    } else {
+        "python3".into()
+    }
 }
 
 fn allowed_origin(args: &[String]) -> bool {
