@@ -50,13 +50,52 @@ struct ScanOutput {
     categories: Vec<String>,
 }
 
+fn setting(name: &str) -> Option<String> {
+    if let Ok(value) = std::env::var(name) {
+        if !value.trim().is_empty() {
+            return Some(value);
+        }
+    }
+
+    let key = match name {
+        "AEGIS_EXTENSION_ORIGINS" => "extension_origins",
+        "AEGIS_CONTROL_PLANE_URL" => "control_plane_url",
+        "AEGIS_AGENT_TOKEN" => "agent_token",
+        "AEGIS_PYTHON" => "python",
+        "AEGIS_ENGINE_PATH" => "engine_path",
+        _ => return None,
+    };
+    let config_path = dirs::config_dir()?.join("AegisAI").join("config.json");
+    let raw = std::fs::read(config_path).ok()?;
+    let config: serde_json::Value = serde_json::from_slice(&raw).ok()?;
+    config.get(key)?.as_str().map(str::to_owned).filter(|value| !value.trim().is_empty())
+}
+
+fn python_executable() -> String {
+    if let Some(value) = setting("AEGIS_PYTHON") {
+        return value;
+    }
+    if let Ok(executable) = std::env::current_exe() {
+        if let Some(directory) = executable.parent() {
+            #[cfg(target_os = "windows")]
+            let candidate = directory.join(".venv").join("Scripts").join("python.exe");
+            #[cfg(not(target_os = "windows"))]
+            let candidate = directory.join(".venv").join("bin").join("python");
+            if candidate.is_file() {
+                return candidate.to_string_lossy().to_string();
+            }
+        }
+    }
+    if cfg!(target_os = "windows") { "python".into() } else { "python3".into() }
+}
+
 fn allowed_origin(args: &[String]) -> bool {
     if std::env::var("AEGIS_ALLOW_UNVERIFIED_ORIGIN").as_deref() == Ok("1") {
         return true;
     }
     if let Some(origin) = args.first() {
         if origin.starts_with("chrome-extension://") {
-            let configured = std::env::var("AEGIS_EXTENSION_ORIGINS").unwrap_or_default();
+            let configured = setting("AEGIS_EXTENSION_ORIGINS").unwrap_or_default();
             return configured
                 .split(',')
                 .map(str::trim)
@@ -122,16 +161,10 @@ fn scan_local_file(filename: &str, bytes: &[u8]) -> Result<Inspection> {
         return Err(anyhow!("file exceeds inspection size limit"));
     }
 
-    let executable = std::env::var("AEGIS_PYTHON").unwrap_or_else(|_| {
-        if cfg!(target_os = "windows") {
-            "python".into()
-        } else {
-            "python3".into()
-        }
-    });
-    let engine_path = match std::env::var("AEGIS_ENGINE_PATH") {
-        Ok(value) if !value.trim().is_empty() => PathBuf::from(value),
-        _ => std::env::current_exe()?
+    let executable = python_executable();
+    let engine_path = match setting("AEGIS_ENGINE_PATH") {
+        Some(value) => PathBuf::from(value),
+        None => std::env::current_exe()?
             .parent()
             .ok_or_else(|| anyhow!("agent executable directory unavailable"))?
             .join("engine"),
@@ -244,13 +277,13 @@ fn build_event(file: &PendingFile, inspection: Inspection) -> Result<SecurityEve
 }
 
 fn forward_event(event: &SecurityEvent) -> &'static str {
-    let base = match std::env::var("AEGIS_CONTROL_PLANE_URL") {
-        Ok(value) if !value.trim().is_empty() => value.trim_end_matches('/').to_owned(),
-        _ => return "not_configured",
+    let base = match setting("AEGIS_CONTROL_PLANE_URL") {
+        Some(value) => value.trim_end_matches('/').to_owned(),
+        None => return "not_configured",
     };
-    let token = match std::env::var("AEGIS_AGENT_TOKEN") {
-        Ok(value) if !value.is_empty() => value,
-        _ => return "not_configured",
+    let token = match setting("AEGIS_AGENT_TOKEN") {
+        Some(value) => value,
+        None => return "not_configured",
     };
     let client = match reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(4))
