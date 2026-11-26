@@ -36,3 +36,13 @@ func TestPolicyRejectsInvalidExceptionAction(t *testing.T) {
 		t.Fatal("invalid exception action should be rejected")
 	}
 }
+
+func TestPolicyRejectsExceptionWithoutConditions(t *testing.T) {
+	policy := validPolicy()
+	policy.Exceptions = []PolicyException{{
+		Name: "Empty exception", Action: "allow",
+	}}
+	if err := policy.Validate(); err == nil {
+		t.Fatal("empty exception should be rejected")
+	}
+}

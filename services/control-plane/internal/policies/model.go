@@ -72,6 +72,9 @@ func (p Policy) Validate() error {
 		if len(exception.Fingerprints) > 64 {
 			return errors.New("exception contains too many file fingerprints")
 		}
+		if len(exception.Categories)+len(exception.Providers)+len(exception.Extensions)+len(exception.Fingerprints) == 0 {
+			return errors.New("exception must include at least one matching condition")
+		}
 		values = append(values, exception.Categories...)
 		values = append(values, exception.Providers...)
 		values = append(values, exception.Extensions...)

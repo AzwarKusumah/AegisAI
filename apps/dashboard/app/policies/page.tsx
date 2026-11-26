@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { DlpPolicy } from "../../lib/types";
+import type { DlpPolicy, PolicyException } from "../../lib/types";
 
 const emptyPolicy: DlpPolicy = {
   id: "",
@@ -70,9 +70,22 @@ export default function PoliciesPage() {
     const values = editing[key];
     setEditing({ ...editing, [key]: values.includes(value) ? values.filter((item) => item !== value) : [...values, value] });
   }
-  function updateException(field: "name" | "action" | "categories" | "providers" | "extensions" | "fingerprints", value: string) {
+  function addException() {
+    if (!editing || editing.exceptions.length >= 20) return;
+    const next: PolicyException = {
+      name: "Approved exception",
+      action: "allow",
+      categories: [],
+      providers: [],
+      extensions: [],
+      fingerprints: []
+    };
+    setEditing({ ...editing, exceptions: [...editing.exceptions, next] });
+  }
+  function updateException(index: number, field: "name" | "action" | "categories" | "providers" | "extensions" | "fingerprints", value: string) {
     if (!editing) return;
-    const current = editing.exceptions[0] ?? { name: "Approved exception", action: "allow" as const, categories: [], providers: [], extensions: [], fingerprints: [] };
+    const current = editing.exceptions[index];
+    if (!current) return;
     let next = current;
     if (field === "name") next = { ...current, name: value };
     else if (field === "action") next = { ...current, action: value as "block" | "audit" | "allow" };
@@ -80,7 +93,11 @@ export default function PoliciesPage() {
     else if (field === "providers") next = { ...current, providers: value.split(",").map((item) => item.trim()).filter(Boolean) };
     else if (field === "extensions") next = { ...current, extensions: value.split(",").map((item) => item.trim()).filter(Boolean) };
     else next = { ...current, fingerprints: value.split(",").map((item) => item.trim()).filter(Boolean) };
-    setEditing({ ...editing, exceptions: [next] });
+    setEditing({ ...editing, exceptions: editing.exceptions.map((item, itemIndex) => itemIndex === index ? next : item) });
+  }
+  function removeException(index: number) {
+    if (!editing) return;
+    setEditing({ ...editing, exceptions: editing.exceptions.filter((_, itemIndex) => itemIndex !== index) });
   }
 
   async function save() {
@@ -208,14 +225,20 @@ export default function PoliciesPage() {
             <label className="fieldGroup"><span>File extensions (comma-separated)</span><input className="control" placeholder="pdf, docx, xlsx" value={editing.extensions.join(", ")} onChange={(event) => setEditing({ ...editing, extensions: event.target.value.split(",") })} /></label>
             <label className="fieldGroup"><span>Exact file fingerprints · SHA-256</span><textarea className="control" rows={2} placeholder="One 64-character SHA-256 per entry, comma-separated" value={editing.fingerprints.join(", ")} onChange={(event) => setEditing({ ...editing, fingerprints: event.target.value.split(",") })} /></label>
             <div className="fieldGroup">
-              <span>Exceptions</span>
-              <p className="fieldHelp">Exceptions are evaluated only after the parent policy matches. Set an explicit outcome for the matching exception.</p>
-              <label className="fieldGroup"><span>Exception name</span><input className="control" value={editing.exceptions[0]?.name ?? ""} onChange={(event) => updateException("name", event.target.value)} placeholder="Approved workspace" /></label>
-              <label className="fieldGroup"><span>Exception action</span><select className="control" value={editing.exceptions[0]?.action ?? "allow"} onChange={(event) => updateException("action", event.target.value)}><option value="allow">Allow this exception</option><option value="audit">Allow and audit</option><option value="block">Block this exception</option></select></label>
-              <label className="fieldGroup"><span>Exclude categories (comma-separated)</span><input className="control" value={editing.exceptions[0]?.categories.join(", ") ?? ""} onChange={(event) => updateException("categories", event.target.value)} placeholder="email, phone" /></label>
-              <label className="fieldGroup"><span>Exclude services (comma-separated)</span><input className="control" value={editing.exceptions[0]?.providers.join(", ") ?? ""} onChange={(event) => updateException("providers", event.target.value)} placeholder="chatgpt, claude" /></label>
-              <label className="fieldGroup"><span>Exclude extensions (comma-separated)</span><input className="control" value={editing.exceptions[0]?.extensions.join(", ") ?? ""} onChange={(event) => updateException("extensions", event.target.value)} placeholder="pdf, docx" /></label>
-              <label className="fieldGroup"><span>Exclude file fingerprints (SHA-256)</span><textarea className="control" rows={2} value={editing.exceptions[0]?.fingerprints.join(", ") ?? ""} onChange={(event) => updateException("fingerprints", event.target.value)} placeholder="Approved file SHA-256 values" /></label>
+              <div className="exceptionHeading">
+                <div><span>Exceptions</span><p className="fieldHelp">An exception is checked only after this policy's conditions match. Each exception has its own outcome.</p></div>
+                <button className="button buttonSecondary" disabled={editing.exceptions.length >= 20} onClick={addException}>Add exception</button>
+              </div>
+              {editing.exceptions.map((exception, index) => <section className="exceptionCard" key={index}>
+                <div className="exceptionCardHead"><strong>Exception {index + 1}</strong><button className="button buttonDanger" onClick={() => removeException(index)}>Remove</button></div>
+                <label className="fieldGroup"><span>Name</span><input className="control" value={exception.name} onChange={(event) => updateException(index, "name", event.target.value)} placeholder="Approved workspace" /></label>
+                <label className="fieldGroup"><span>Outcome</span><select className="control" value={exception.action} onChange={(event) => updateException(index, "action", event.target.value)}><option value="allow">Allow this exception</option><option value="audit">Allow and audit</option><option value="block">Block this exception</option></select></label>
+                <label className="fieldGroup"><span>Matching categories (comma-separated)</span><input className="control" value={exception.categories.join(", ")} onChange={(event) => updateException(index, "categories", event.target.value)} placeholder="email, phone" /></label>
+                <label className="fieldGroup"><span>Matching services (comma-separated)</span><input className="control" value={exception.providers.join(", ")} onChange={(event) => updateException(index, "providers", event.target.value)} placeholder="chatgpt, claude" /></label>
+                <label className="fieldGroup"><span>Matching extensions (comma-separated)</span><input className="control" value={exception.extensions.join(", ")} onChange={(event) => updateException(index, "extensions", event.target.value)} placeholder="pdf, docx" /></label>
+                <label className="fieldGroup"><span>Exact file fingerprints (SHA-256)</span><textarea className="control" rows={2} value={exception.fingerprints.join(", ")} onChange={(event) => updateException(index, "fingerprints", event.target.value)} placeholder="Approved file SHA-256 values" /></label>
+              </section>)}
+              {editing.exceptions.length === 0 && <p className="fieldHelp">No exceptions configured. Matching files follow the main policy action.</p>}
             </div>
             <label className="choice"><input type="checkbox" checked={editing.enabled} onChange={(event) => setEditing({ ...editing, enabled: event.target.checked })} /><span>Policy enabled</span></label>
             <label className="choice"><input type="checkbox" checked={editing.share_redacted_preview} onChange={(event) => setEditing({ ...editing, share_redacted_preview: event.target.checked })} /><span>Share a short document preview after detected values are redacted</span></label>
