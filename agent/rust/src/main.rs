@@ -382,6 +382,45 @@ fn handle_message(
     completed: &mut Option<PendingResult>,
 ) -> Result<serde_json::Value> {
     match message {
+        AgentMessage::Status => {
+            let config_url = setting("AEGIS_CONTROL_PLANE_URL");
+            let token = setting("AEGIS_AGENT_TOKEN");
+            let python = setting("AEGIS_PYTHON");
+            let engine = setting("AEGIS_ENGINE_PATH");
+            let configured = config_url.is_some() && token.is_some()
+                && python.as_ref().map(|value| PathBuf::from(value).is_file()).unwrap_or(false)
+                && engine.as_ref().map(|value| PathBuf::from(value).join("aegis_inspector").is_dir()).unwrap_or(false);
+
+            if !configured {
+                return Ok(json!({
+                    "type": "agent_status",
+                    "state": "setup_required",
+                    "control_plane": "not_configured"
+                }));
+            }
+
+            let base = config_url.unwrap().trim_end_matches('/').to_owned();
+            let control_plane = match reqwest::blocking::Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(2))
+                .timeout(std::time::Duration::from_secs(3))
+                .build()
+                .and_then(|client| client.get(format!("{base}/healthz")).send())
+            {
+                Ok(response) if response.status().is_success() => {
+                    match response.json::<serde_json::Value>() {
+                        Ok(body) if body.get("status").and_then(|value| value.as_str()) == Some("ok") => "connected",
+                        _ => "unreachable"
+                    }
+                }
+                _ => "unreachable"
+            };
+
+            Ok(json!({
+                "type": "agent_status",
+                "state": if control_plane == "connected" { "ready" } else { "limited" },
+                "control_plane": control_plane
+            }))
+        }
         AgentMessage::FileStart {
             file_id,
             provider_domain,
