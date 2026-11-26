@@ -20,6 +20,14 @@ func Run(root string, noDeploy, accessible bool) error {
 	cfg := FromEnv(values)
 
 	deployment := cfg.Mode
+	options := []huh.Option[string]{
+		huh.NewOption("Docker Compose — easiest setup, includes PostgreSQL", "docker"),
+	}
+	if runtime.GOOS == "linux" {
+		options = append(options, huh.NewOption("Native systemd — Linux services with existing PostgreSQL", "systemd"))
+	} else {
+		deployment = "docker"
+	}
 	if err := huh.NewForm(
 		huh.NewGroup(
 			huh.NewNote().
@@ -27,11 +35,8 @@ func Run(root string, noDeploy, accessible bool) error {
 				Description("Configure dashboard, control plane and PostgreSQL. Passwords are masked while typing and saved in a private .env file."),
 			huh.NewSelect[string]().
 				Title("Deployment method").
-				Description("Docker creates a PostgreSQL container. systemd connects to an existing PostgreSQL database.").
-				Options(
-					huh.NewOption("Docker Compose — easiest setup, includes PostgreSQL", "docker"),
-					huh.NewOption("Native systemd — Linux services with existing PostgreSQL", "systemd"),
-				).
+				Description("Docker creates a PostgreSQL container. Native systemd is available on Linux and connects to an existing PostgreSQL database.").
+				Options(options...).
 				Value(&deployment),
 		),
 	).WithAccessible(accessible).Run(); err != nil {
@@ -141,10 +146,16 @@ func Run(root string, noDeploy, accessible bool) error {
 		cfg.Mode, databaseSummary(cfg), cfg.DashboardBind, cfg.DashboardPort, cfg.DashboardUser, envPath,
 	)
 	confirmed := false
+	confirmTitle := "Save configuration and start deployment?"
+	affirmative := "Save and deploy"
+	if noDeploy {
+		confirmTitle = "Save configuration only?"
+		affirmative = "Save configuration"
+	}
 	if err := huh.NewForm(huh.NewGroup(
 		huh.NewNote().Title("Review configuration").Description(summary),
-		huh.NewConfirm().Title("Save configuration and start deployment?").
-			Affirmative("Save and deploy").Negative("Cancel").Value(&confirmed),
+		huh.NewConfirm().Title(confirmTitle).
+			Affirmative(affirmative).Negative("Cancel").Value(&confirmed),
 	)).WithAccessible(accessible).Run(); err != nil { return err }
 	if !confirmed { return errors.New("setup cancelled by user") }
 
