@@ -167,10 +167,72 @@ jobs:
           compression-level: 0
           retention-days: 30
 
+  setup-cli:
+    name: Build ${{ matrix.package }} setup TUI
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: windows-x86_64
+            goos: windows
+            goarch: amd64
+            suffix: .exe
+          - package: linux-x86_64
+            goos: linux
+            goarch: amd64
+            suffix: ""
+          - package: linux-aarch64
+            goos: linux
+            goarch: arm64
+            suffix: ""
+          - package: macos-x86_64
+            goos: darwin
+            goarch: amd64
+            suffix: ""
+          - package: macos-aarch64
+            goos: darwin
+            goarch: arm64
+            suffix: ""
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7.1.0
+        with:
+          go-version: stable
+      - name: Test setup utility
+        working-directory: deployments/setup
+        run: |
+          go mod download
+          go test ./...
+          go vet ./...
+      - name: Cross-compile setup binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          PACKAGE_NAME: ${{ matrix.package }}
+          FILE_SUFFIX: ${{ matrix.suffix }}
+        working-directory: deployments/setup
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/release-assets"
+          output="$GITHUB_WORKSPACE/release-assets/aegisai-setup-$PACKAGE_NAME$FILE_SUFFIX"
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=0.4.0" -o "$output" ./cmd/aegisai-setup
+          cd "$GITHUB_WORKSPACE/release-assets"
+          sha256sum "$(basename "$output")" > "$(basename "$output").sha256"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-setup-${{ matrix.package }}
+          path: |
+            release-assets/aegisai-setup-*
+            release-assets/aegisai-setup-*.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
   publish-release:
     name: Attach packages to GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [extension-packages, agent-binaries]
+    needs: [extension-packages, agent-binaries, setup-cli]
     runs-on: ubuntu-latest
     permissions:
       contents: write

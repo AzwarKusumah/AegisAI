@@ -7,42 +7,28 @@ MODE=""
 
 usage() {
   cat <<'EOF'
-AegisAI setup
+AegisAI deployment installer (the recommended interactive setup is deployments/setup)
 
 Usage:
-  ./deployments/install.sh                  # interactive setup
-  ./deployments/install.sh --mode docker    # Docker Compose deployment
+  ./deployments/install.sh --mode docker
   sudo ./deployments/install.sh --mode systemd
+  sudo ./deployments/install.sh --mode systemd --env-file /path/to/.env
 
-Modes:
-  docker   Build and start PostgreSQL, Go control plane, and dashboard containers.
-  systemd  Build/install the Go API and Next.js dashboard as native systemd services.
-           Requires Linux, systemd, Go >= 1.23, Node.js >= 20, npm, and PostgreSQL.
+The setup TUI collects credentials and writes the environment file before calling this installer.
 EOF
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --mode) MODE="${2:-}"; shift 2 ;;
+    --env-file) ENV_FILE="${2:-}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
 
-if [[ -z "$MODE" ]]; then
-  printf '\nAegisAI deployment setup\n\n'
-  printf '  1) Docker Compose  (recommended for a quick start)\n'
-  printf '  2) systemd         (native Linux services)\n\n'
-  read -r -p 'Choose deployment [1/2]: ' choice
-  case "$choice" in
-    1) MODE="docker" ;;
-    2) MODE="systemd" ;;
-    *) echo "Invalid choice." >&2; exit 2 ;;
-  esac
-fi
-
 if [[ "$MODE" != "docker" && "$MODE" != "systemd" ]]; then
-  echo "Mode must be docker or systemd." >&2
+  echo "Specify --mode docker or --mode systemd. Use the AegisAI setup TUI for configuration." >&2
   exit 2
 fi
 
@@ -62,62 +48,25 @@ read_env() {
   printf '%s' "$value"
 }
 
-write_env_if_missing() {
-  if [[ -f "$ENV_FILE" ]]; then
-    echo "Using existing $ENV_FILE"
-    return
-  fi
-
-  require_cmd openssl
-  local db_password agent_token admin_token dashboard_password
-  db_password="$(openssl rand -hex 24)"
-  agent_token="$(openssl rand -hex 32)"
-  admin_token="$(openssl rand -hex 32)"
-  dashboard_password="$(openssl rand -hex 24)"
-
-  umask 077
-  cat > "$ENV_FILE" <<EOF
-POSTGRES_DB=aegisai
-POSTGRES_USER=aegisai
-POSTGRES_PASSWORD=$db_password
-DATABASE_URL=postgres://aegisai:$db_password@127.0.0.1:5432/aegisai?sslmode=disable
-AEGIS_AGENT_TOKEN=$agent_token
-AEGIS_ADMIN_TOKEN=$admin_token
-AEGIS_LISTEN_ADDR=127.0.0.1:8787
-AEGIS_API_URL=http://127.0.0.1:8787
-AEGIS_DASHBOARD_USER=admin
-AEGIS_DASHBOARD_PASSWORD=$dashboard_password
-AEGIS_DASHBOARD_PORT=3000
-EOF
-  chmod 600 "$ENV_FILE"
-  printf '\nCreated %s with random credentials.\n' "$ENV_FILE"
-  printf 'Dashboard username: admin\nDashboard password: %s\n\n' "$dashboard_password"
-  echo "Save the dashboard password now. The setup script will not print it again."
-}
-
 validate_env() {
+  [[ -f "$ENV_FILE" ]] || { echo "Configuration file not found: $ENV_FILE" >&2; exit 1; }
   local key value
-  for key in POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD AEGIS_AGENT_TOKEN AEGIS_ADMIN_TOKEN AEGIS_DASHBOARD_USER AEGIS_DASHBOARD_PASSWORD; do
+  for key in POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD DATABASE_URL AEGIS_AGENT_TOKEN AEGIS_ADMIN_TOKEN AEGIS_DASHBOARD_USER AEGIS_DASHBOARD_PASSWORD AEGIS_DASHBOARD_PORT AEGIS_DASHBOARD_BIND PORT HOSTNAME; do
     value="$(read_env "$key")"
-    if [[ -z "$value" || "$value" == *"replace-"* || "$value" == *"change-this-"* || "$value" == *"generate-a-"* ]]; then
-      echo "Missing or placeholder value for $key in $ENV_FILE" >&2
+    if [[ -z "$value" ]]; then
+      echo "Missing value for $key in $ENV_FILE. Run the setup TUI first." >&2
       exit 1
     fi
   done
-  if [[ "$(read_env POSTGRES_DB)" != "aegisai" || "$(read_env POSTGRES_USER)" != "aegisai" ]]; then
-    echo "The systemd bootstrap currently expects POSTGRES_DB and POSTGRES_USER to be aegisai." >&2
-    exit 1
-  fi
 }
 
 setup_docker() {
   require_cmd docker
   docker compose version >/dev/null 2>&1 || { echo "Docker Compose plugin is required (docker compose)." >&2; exit 1; }
-  write_env_if_missing
   validate_env
   docker compose --env-file "$ENV_FILE" -f "$ROOT/deployments/compose/docker-compose.yml" config --quiet
   docker compose --env-file "$ENV_FILE" -f "$ROOT/deployments/compose/docker-compose.yml" up -d --build
-  printf '\nAegisAI is starting. Dashboard: http://127.0.0.1:%s\n' "$(read_env AEGIS_DASHBOARD_PORT)"
+  printf '\nAegisAI is starting. Dashboard: http://%s:%s\n' "$(read_env AEGIS_DASHBOARD_BIND)" "$(read_env AEGIS_DASHBOARD_PORT)"
   echo "Check status with: docker compose --env-file .env -f deployments/compose/docker-compose.yml ps"
 }
 
@@ -133,41 +82,44 @@ setup_systemd() {
   require_cmd go
   require_cmd node
   require_cmd npm
-  require_cmd runuser
   require_cmd psql
-  require_cmd pg_isready
-  require_cmd openssl
+  validate_env
 
-  local go_version node_version db_password role_exists database_exists
+  local go_version node_version db_password db_host db_port db_user db_name db_sslmode
   go_version="$(go version | awk '{print $3}' | sed 's/^go//')"
   node_version="$(node --version | sed 's/^v//')"
   version_at_least "$go_version" "1.23" || { echo "Go >= 1.23 is required (found $go_version)." >&2; exit 1; }
   version_at_least "$node_version" "20.0.0" || { echo "Node.js >= 20 is required (found $node_version)." >&2; exit 1; }
 
-  write_env_if_missing
-  validate_env
   db_password="$(read_env POSTGRES_PASSWORD)"
-  pg_isready -h 127.0.0.1 -p 5432 >/dev/null || {
-    echo "PostgreSQL is not accepting TCP connections on 127.0.0.1:5432." >&2
-    echo "Install/start PostgreSQL and enable local TCP password authentication, then rerun." >&2
+  db_host="$(read_env POSTGRES_HOST)"
+  db_port="$(read_env POSTGRES_PORT)"
+  db_user="$(read_env POSTGRES_USER)"
+  db_name="$(read_env POSTGRES_DB)"
+  db_sslmode="$(read_env POSTGRES_SSLMODE)"
+  [[ -n "$db_host" && -n "$db_port" && -n "$db_sslmode" ]] || {
+    echo "POSTGRES_HOST, POSTGRES_PORT, and POSTGRES_SSLMODE are required for systemd." >&2
     exit 1
   }
 
-  role_exists="$(runuser -u postgres -- psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='aegisai'")"
-  if [[ "$role_exists" == "1" ]]; then
-    runuser -u postgres -- psql -v ON_ERROR_STOP=1 -v dbpass="$db_password" -c "ALTER ROLE aegisai WITH LOGIN PASSWORD :'dbpass';"
-  else
-    runuser -u postgres -- psql -v ON_ERROR_STOP=1 -v dbpass="$db_password" -c "CREATE ROLE aegisai LOGIN PASSWORD :'dbpass';"
-  fi
-  database_exists="$(runuser -u postgres -- psql -tAc "SELECT 1 FROM pg_database WHERE datname='aegisai'")"
-  if [[ "$database_exists" != "1" ]]; then
-    runuser -u postgres -- createdb --owner=aegisai aegisai
-  else
-    runuser -u postgres -- psql -v ON_ERROR_STOP=1 -c "ALTER DATABASE aegisai OWNER TO aegisai;"
+  echo "Checking PostgreSQL credentials and schema privileges..."
+  probe_table="aegisai_setup_check_$"
+  if ! PGPASSWORD="$db_password" PGSSLMODE="$db_sslmode" psql \
+      --host="$db_host" --port="$db_port" --username="$db_user" --dbname="$db_name" \
+      --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align \
+      --command="BEGIN; CREATE TABLE public.${probe_table} (id INTEGER); DROP TABLE public.${probe_table}; ROLLBACK;" >/dev/null 2>&1; then
+    echo "Could not authenticate or create tables in public schema at $db_host:$db_port/$db_name." >&2
+    echo "Check database/user credentials, SSL mode, firewall, and CREATE privilege on schema public." >&2
+    exit 1
   fi
 
+  if ! getent group aegisai >/dev/null 2>&1; then
+    groupadd --system aegisai
+  fi
   if ! id aegisai >/dev/null 2>&1; then
-    useradd --system --user-group --home-dir /var/lib/aegisai --create-home --shell /usr/sbin/nologin aegisai
+    useradd --system --gid aegisai --home-dir /var/lib/aegisai --create-home --shell /usr/sbin/nologin aegisai
+  else
+    usermod --append --groups aegisai aegisai
   fi
 
   install -d -o root -g aegisai -m 0750 /etc/aegisai
@@ -211,7 +163,7 @@ setup_systemd() {
   systemctl enable --now aegisai-control-plane.service
   systemctl enable --now aegisai-dashboard.service
   printf '\nAegisAI systemd services are installed.\n'
-  echo "Dashboard: http://127.0.0.1:3000"
+  echo "Dashboard: http://$(read_env AEGIS_DASHBOARD_BIND):$(read_env AEGIS_DASHBOARD_PORT)"
   echo "Status: systemctl status aegisai-control-plane aegisai-dashboard"
   echo "Logs:   journalctl -u aegisai-control-plane -u aegisai-dashboard -f"
 }

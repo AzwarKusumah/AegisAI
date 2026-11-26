@@ -4,19 +4,19 @@ AegisAI ships one dashboard application with two deployment methods. Choose one 
 
 ## Quick setup
 
-From the repository root:
+Download the prebuilt AegisAI Setup TUI from the latest successful Build endpoint and browser packages workflow or a versioned GitHub Release.
 
-    chmod +x deployments/install.sh
-    ./deployments/install.sh
+Run it from the repository root:
 
-The setup wizard offers Docker Compose or native systemd. It creates a local .env file with random agent, admin, database, and dashboard credentials. Keep .env private; it is ignored by Docker build contexts and must not be committed.
+    ./aegisai-setup-linux-x86_64
 
-Non-interactive modes:
+Windows PowerShell:
 
-    ./deployments/install.sh --mode docker
-    sudo ./deployments/install.sh --mode systemd
+    .\aegisai-setup-windows-x86_64.exe
 
-The dashboard listens on 127.0.0.1:3000 by default. Put a TLS reverse proxy such as Caddy or Nginx in front of it for access from other machines. HTTP Basic Authentication is not a substitute for HTTPS.
+The TUI is also built for Linux ARM64 and macOS Intel/Apple Silicon. It presents form pages for deployment type, database settings, dashboard account, agent/admin tokens, dashboard port, and network binding. Passwords are masked. Empty secret fields are filled with cryptographically random secrets, and the resulting .env is written with mode 0600 on Unix.
+
+Use --no-deploy to save the configuration without deploying. The setup CLI binary itself does not contain the server application: run it from a checked-out AegisAI repository so Docker/systemd can access the source and deployment files.
 
 ## Option A: Docker Compose
 
@@ -40,17 +40,15 @@ Published dashboard and database ports bind to loopback. The control-plane port 
 
 ## Option B: native systemd
 
-Requirements: Linux with systemd, Go 1.23+, Node.js 20+, npm, PostgreSQL, and a local PostgreSQL superuser named postgres.
+Requirements: Linux with systemd, Go 1.23+, Node.js 20+, npm, and the PostgreSQL client (psql).
 
-Install PostgreSQL and configure it to accept local TCP connections on 127.0.0.1:5432 with password authentication. Then run:
+The setup TUI connects to an **existing** PostgreSQL database. Create the database and login role before installation; that role must have permission to connect and create tables and indexes. The installer tests the supplied database credentials before installing services. It does not create or modify database roles, databases, or PostgreSQL authentication settings.
 
-    sudo ./deployments/install.sh --mode systemd
-
-The installer creates/updates the aegisai PostgreSQL role and database, builds a stripped static Go binary, builds the Next.js standalone dashboard, and installs:
+The setup wizard writes the database DSN and service settings, then installs:
 - aegisai-control-plane.service
 - aegisai-dashboard.service
 
-The application environment is stored at /etc/aegisai/aegisai.env (root-owned, mode 0640). The dashboard runs as the unprivileged aegisai user and listens on loopback.
+The application environment is copied to /etc/aegisai/aegisai.env (root-owned, mode 0640). Both services run as the unprivileged aegisai user.
 
 Manage services:
 
@@ -58,7 +56,7 @@ Manage services:
     sudo systemctl restart aegisai-control-plane aegisai-dashboard
     sudo journalctl -u aegisai-control-plane -u aegisai-dashboard -f
 
-The installer does not install or reconfigure PostgreSQL itself. Back up the database and /etc/aegisai/aegisai.env securely.
+Back up the database and /etc/aegisai/aegisai.env securely.
 
 ## Build-size choices
 

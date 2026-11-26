@@ -10,8 +10,6 @@ Group=aegisai
 WorkingDirectory=/opt/aegisai/dashboard
 EnvironmentFile=/etc/aegisai/aegisai.env
 Environment=NODE_ENV=production
-Environment=HOSTNAME=127.0.0.1
-Environment=PORT=3000
 Environment=NEXT_TELEMETRY_DISABLED=1
 ExecStart=/usr/bin/env node /opt/aegisai/dashboard/server.js
 Restart=on-failure

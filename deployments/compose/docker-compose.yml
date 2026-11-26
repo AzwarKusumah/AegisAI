@@ -5,9 +5,9 @@ services:
     image: postgres:17-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
-      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?Run the AegisAI setup TUI first}
+      POSTGRES_USER: ${POSTGRES_USER:?Run the AegisAI setup TUI first}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run the AegisAI setup TUI first}
     volumes:
       - aegisai_postgres:/var/lib/postgresql/data
     healthcheck:
@@ -26,9 +26,9 @@ services:
     image: aegisai/control-plane:local
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
-      AEGIS_AGENT_TOKEN: ${AEGIS_AGENT_TOKEN:?Set AEGIS_AGENT_TOKEN in .env}
-      AEGIS_ADMIN_TOKEN: ${AEGIS_ADMIN_TOKEN:?Set AEGIS_ADMIN_TOKEN in .env}
+      DATABASE_URL: ${DATABASE_URL:?Run the AegisAI setup TUI first}
+      AEGIS_AGENT_TOKEN: ${AEGIS_AGENT_TOKEN:?Missing AEGIS_AGENT_TOKEN}
+      AEGIS_ADMIN_TOKEN: ${AEGIS_ADMIN_TOKEN:?Missing AEGIS_ADMIN_TOKEN}
       AEGIS_LISTEN_ADDR: 0.0.0.0:8787
     depends_on:
       postgres:
@@ -52,17 +52,17 @@ services:
     init: true
     environment:
       AEGIS_API_URL: http://control-plane:8787
-      AEGIS_ADMIN_TOKEN: ${AEGIS_ADMIN_TOKEN:?Set AEGIS_ADMIN_TOKEN in .env}
-      AEGIS_DASHBOARD_USER: ${AEGIS_DASHBOARD_USER:?Set AEGIS_DASHBOARD_USER in .env}
-      AEGIS_DASHBOARD_PASSWORD: ${AEGIS_DASHBOARD_PASSWORD:?Set AEGIS_DASHBOARD_PASSWORD in .env}
+      AEGIS_ADMIN_TOKEN: ${AEGIS_ADMIN_TOKEN:?Missing AEGIS_ADMIN_TOKEN}
+      AEGIS_DASHBOARD_USER: ${AEGIS_DASHBOARD_USER:?Missing AEGIS_DASHBOARD_USER}
+      AEGIS_DASHBOARD_PASSWORD: ${AEGIS_DASHBOARD_PASSWORD:?Missing AEGIS_DASHBOARD_PASSWORD}
       HOSTNAME: 0.0.0.0
-      PORT: 3000
+      PORT: ${AEGIS_DASHBOARD_PORT:-3000}
       NODE_ENV: production
       NEXT_TELEMETRY_DISABLED: "1"
     depends_on:
       - control-plane
     ports:
-      - "127.0.0.1:${AEGIS_DASHBOARD_PORT:-3000}:3000"
+      - "${AEGIS_DASHBOARD_BIND:-127.0.0.1}:${AEGIS_DASHBOARD_PORT:-3000}:${AEGIS_DASHBOARD_PORT:-3000}"
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=16m

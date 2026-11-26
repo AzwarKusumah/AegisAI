@@ -1,7 +1,7 @@
 [Unit]
 Description=AegisAI metadata control plane
-Wants=network-online.target postgresql.service
-After=network-online.target postgresql.service
+Wants=network-online.target
+After=network-online.target
 
 [Service]
 Type=simple

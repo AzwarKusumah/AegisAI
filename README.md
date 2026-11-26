@@ -19,24 +19,19 @@ AegisAI is a self-hosted AI Data Loss Prevention platform designed to inspect se
 
 ## Install the server
 
-The dashboard is a single Next.js application with two supported deployment modes:
+Use the prebuilt AegisAI Setup TUI from the repository's GitHub Actions artifacts or a GitHub Release. Extract the binary and run it from the repository root:
 
-- **Docker Compose:** PostgreSQL + Go control plane + Next.js standalone runtime. The Go image is a stripped static binary on Distroless; the dashboard runtime excludes the build toolchain.
-- **systemd:** native Go binary and Next.js standalone server managed by two systemd units. Requires Linux, Go 1.23+, Node.js 20+, npm, and PostgreSQL.
+    ./aegisai-setup-linux-x86_64
+    ./aegisai-setup-linux-aarch64
+    ./aegisai-setup-macos-aarch64
+    .\aegisai-setup-windows-x86_64.exe
 
-Run the interactive setup from the repository root:
+The TUI asks for deployment type, PostgreSQL database/user/password, dashboard username/password, agent ingestion token, internal admin API token, dashboard port, and network bind address. Secrets are masked while typing. Blank secrets are generated securely. The TUI writes a private .env file and starts the selected deployment.
 
-    chmod +x deployments/install.sh
-    ./deployments/install.sh
+- Docker Compose creates PostgreSQL 17 Alpine, Go control plane, and Next.js dashboard containers.
+- Native systemd installs the Go API and Next.js standalone dashboard as Linux services, using an existing PostgreSQL database. The selected database user must be able to create tables and indexes.
 
-Or choose a deployment non-interactively:
-
-    ./deployments/install.sh --mode docker
-    sudo ./deployments/install.sh --mode systemd
-
-The setup wizard generates a private .env with random credentials on first run. Save the dashboard password printed by the installer. The dashboard listens on 127.0.0.1:3000; configure a trusted TLS reverse proxy for remote access.
-
-Full deployment details: deployments/README.md.
+Run the TUI with --no-deploy to write configuration without starting services. Full setup details: deployments/setup/README.md.
 
 ## Build browser extensions
 
@@ -66,6 +61,7 @@ For every push to main or this feature branch, and for pull requests targeting m
    - release-agent-windows-x86_64: Windows installer bundle.
    - release-agent-linux-x86_64 and release-agent-linux-aarch64: Linux bundles.
    - release-agent-macos-x86_64 and release-agent-macos-aarch64: Intel and Apple Silicon macOS bundles.
+   - release-setup-* artifacts: prebuilt AegisAI setup TUI for Windows, Linux, and macOS.
 4. Verify the download with the matching .sha256 file before installation.
 
 Build artifacts are retained by GitHub Actions for 30 days. When a version tag matching v* is pushed, the same workflow attaches all packages and checksums to a GitHub Release.
