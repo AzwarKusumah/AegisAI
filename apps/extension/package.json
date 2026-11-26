@@ -1,9 +1,12 @@
 {
   "name": "@aegisai/extension",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "private": true,
   "scripts": {
-    "build": "esbuild src/background.ts --bundle --platform=browser --target=chrome120 --outfile=dist/background.js && esbuild src/content.ts --bundle --platform=browser --target=chrome120 --outfile=dist/content.js",
+    "build": "node scripts/build.mjs all",
+    "build:chromium": "node scripts/build.mjs chromium",
+    "build:firefox": "node scripts/build.mjs firefox",
+    "test:packages": "node scripts/verify-packages.mjs",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

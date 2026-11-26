@@ -1,20 +1,76 @@
+name: aegisai
+
 services:
   postgres:
     image: postgres:17-alpine
-    container_name: aegisai-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: aegisai
-      POSTGRES_USER: aegisai
-      POSTGRES_PASSWORD: change-this-local-development-password
-    ports:
-      - "127.0.0.1:5432:5432"
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     volumes:
       - aegisai_postgres:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U aegisai -d aegisai"]
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 8
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+
+  control-plane:
+    build:
+      context: ../..
+      dockerfile: services/control-plane/Dockerfile
+    image: aegisai/control-plane:local
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      AEGIS_AGENT_TOKEN: ${AEGIS_AGENT_TOKEN:?Set AEGIS_AGENT_TOKEN in .env}
+      AEGIS_ADMIN_TOKEN: ${AEGIS_ADMIN_TOKEN:?Set AEGIS_ADMIN_TOKEN in .env}
+      AEGIS_LISTEN_ADDR: 0.0.0.0:8787
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    expose:
+      - "8787"
+
+  dashboard:
+    build:
+      context: ../..
+      dockerfile: apps/dashboard/Dockerfile
+    image: aegisai/dashboard:local
+    restart: unless-stopped
+    init: true
+    environment:
+      AEGIS_API_URL: http://control-plane:8787
+      AEGIS_ADMIN_TOKEN: ${AEGIS_ADMIN_TOKEN:?Set AEGIS_ADMIN_TOKEN in .env}
+      AEGIS_DASHBOARD_USER: ${AEGIS_DASHBOARD_USER:?Set AEGIS_DASHBOARD_USER in .env}
+      AEGIS_DASHBOARD_PASSWORD: ${AEGIS_DASHBOARD_PASSWORD:?Set AEGIS_DASHBOARD_PASSWORD in .env}
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
+    depends_on:
+      - control-plane
+    ports:
+      - "127.0.0.1:${AEGIS_DASHBOARD_PORT:-3000}:3000"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+      - /app/.next/cache:rw,noexec,nosuid,size=64m,uid=1001,gid=1001,mode=0750
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
 volumes:
   aegisai_postgres:

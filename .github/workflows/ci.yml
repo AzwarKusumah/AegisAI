@@ -54,6 +54,7 @@ jobs:
       - run: npm install
       - run: npm run typecheck
       - run: npm run build
+      - run: npm run test:packages
 
   dashboard:
     runs-on: ubuntu-latest
@@ -68,3 +69,22 @@ jobs:
       - run: npm install
       - run: npm run typecheck
       - run: npm run build
+
+  deploy-packaging:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash -n deployments/install.sh
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/control-plane/Dockerfile
+          push: false
+          tags: aegisai/control-plane:ci
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/dashboard/Dockerfile
+          push: false
+          tags: aegisai/dashboard:ci

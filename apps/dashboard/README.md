@@ -1,23 +1,29 @@
 # AegisAI Dashboard
 
-Next.js audit console for metadata-only security events.
+Next.js audit console for metadata-only security events. The same application supports Docker and native systemd deployment.
 
-## Configure and run
+## Configure and run locally
 
-From apps/dashboard:
+From this directory:
 
     npm install
+    npm run dev
 
-Set the server-side environment variables:
+Set these server-side environment variables:
 
 - AEGIS_API_URL=http://127.0.0.1:8787
 - AEGIS_ADMIN_TOKEN=<control-plane admin token>
 - AEGIS_DASHBOARD_USER=<dashboard username>
 - AEGIS_DASHBOARD_PASSWORD=<long random dashboard password>
 
-Then start:
+The application uses Next.js standalone output for production. Build and run:
 
-    npm run dev
+    npm run build
+    npm run start
+
+For Docker and systemd installers, see ../../deployments/README.md.
+
+## Authentication and proxy
 
 The app is protected by HTTP Basic Authentication. Configure a strong unique password. For any network-accessible deployment, terminate HTTPS at a trusted reverse proxy; Basic Authentication credentials must not traverse plaintext HTTP.
 

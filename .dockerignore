@@ -1,0 +1,15 @@
+# Keep build contexts lean and prevent local secrets/cache from entering images.
+.git
+.github
+.env
+.env.*
+!.env.example
+**/node_modules
+**/.next
+**/dist
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.mypy_cache
+**/target
+*.log

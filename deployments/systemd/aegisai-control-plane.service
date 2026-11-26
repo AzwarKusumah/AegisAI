@@ -1,0 +1,28 @@
+[Unit]
+Description=AegisAI metadata control plane
+Wants=network-online.target postgresql.service
+After=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=aegisai
+Group=aegisai
+EnvironmentFile=/etc/aegisai/aegisai.env
+ExecStart=/usr/local/bin/aegisai-control-plane
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+CapabilityBoundingSet=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

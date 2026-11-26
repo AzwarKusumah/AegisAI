@@ -1,6 +1,26 @@
 # AegisAI Browser Extension
 
-Version 0.3 provides opt-in local inspection of file attachments selected on supported AI-provider pages.
+Version 0.4.0 builds separate Chromium Manifest V3 and Firefox Manifest V2 packages from the same TypeScript source.
+
+## Build both browser packages
+
+From this directory:
+
+    npm install
+    npm run typecheck
+    npm run build
+    npm run test:packages
+
+Build only one target:
+
+    npm run build:chromium
+    npm run build:firefox
+
+The generated, loadable extension directories are:
+- dist/chromium — Chrome, Edge, Brave, and other Chromium browsers.
+- dist/firefox — Firefox.
+
+Load the corresponding directory as an unpacked/temporary extension in the browser's developer extension page. The generated folders include their own manifest.json, compiled bundles, and popup assets. Build outputs are generated locally and are not committed.
 
 ## User consent and privacy
 
@@ -8,17 +28,9 @@ Inspection is off by default. The user must enable “Inspect selected AI attach
 
 The file bytes do not go to the AegisAI control plane. Only the Rust agent's metadata-only inspection result is sent to the server. The matched secret/PII values and extracted document text are never included in an event.
 
-## Build
-
-    npm install
-    npm run typecheck
-    npm run build
-
-Load the extension directory with the Chromium manifest or package it with the Firefox manifest. The popup assets are static and are included automatically.
-
 ## Limits
 
-- Supported provider domains are configured in providers.ts and the manifests.
+- Supported provider domains are configured in src/providers.ts and both manifests.
 - Current file size limit is 10 MiB.
 - Files are read locally after the provider file input changes.
 - This version does not cancel the provider's upload, inspect clipboard content, or prevent a send action.
