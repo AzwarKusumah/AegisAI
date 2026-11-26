@@ -92,12 +92,9 @@ export default function DevicesPage() {
             <label className="fieldGroup">
               <span>Code lifetime</span>
               <select className="control" value={expiresInHours} onChange={(event) => setExpiresInHours(event.target.value)}>
-                <option value="1">1 hour</option>
-                <option value="2">2 hours</option>
-                <option value="4">4 hours</option>
-                <option value="8">8 hours</option>
-                <option value="12">12 hours</option>
-                <option value="24">24 hours</option>
+                {Array.from({ length: 24 }, (_, index) => index + 1).map((hours) => (
+                  <option key={hours} value={String(hours)}>{hours} {hours === 1 ? "hour" : "hours"}</option>
+                ))}
               </select>
             </label>
             <button className="button buttonPrimary" onClick={() => void createPairing()} disabled={busy}>

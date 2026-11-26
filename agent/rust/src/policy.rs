@@ -70,19 +70,38 @@ fn exception_matches(
     extension: &str,
     categories: &[String],
 ) -> bool {
-    (!exception.categories.is_empty()
-        && exception
+    let mut has_condition = false;
+
+    if !exception.categories.is_empty() {
+        has_condition = true;
+        if !exception
             .categories
             .iter()
-            .any(|wanted| categories.iter().any(|found| found == wanted)))
-        || (!exception.providers.is_empty()
-            && exception.providers.iter().any(|wanted| wanted == provider))
-        || (!exception.extensions.is_empty()
-            && exception.extensions.iter().any(|wanted| {
-                wanted
-                    .trim_start_matches('.')
-                    .eq_ignore_ascii_case(extension)
-            }))
+            .any(|wanted| categories.iter().any(|found| found == wanted))
+        {
+            return false;
+        }
+    }
+
+    if !exception.providers.is_empty() {
+        has_condition = true;
+        if !exception.providers.iter().any(|wanted| wanted == provider) {
+            return false;
+        }
+    }
+
+    if !exception.extensions.is_empty() {
+        has_condition = true;
+        if !exception.extensions.iter().any(|wanted| {
+            wanted
+                .trim_start_matches('.')
+                .eq_ignore_ascii_case(extension)
+        }) {
+            return false;
+        }
+    }
+
+    has_condition
 }
 
 fn policy_matches(
@@ -267,6 +286,43 @@ mod tests {
         );
         assert_eq!(decision.action, "allow");
         assert_eq!(decision.reason, "no_policy_match");
+    }
+
+    #[test]
+    fn exception_requires_all_configured_dimensions_to_match() {
+        let mut block = policy("block", 10);
+        block.exceptions = vec![PolicyException {
+            name: "Approved ChatGPT PDF category".into(),
+            categories: vec!["email".into()],
+            providers: vec!["chatgpt".into()],
+            extensions: vec!["pdf".into()],
+        }];
+        let bundle = PolicyBundle {
+            policies: vec![block],
+            fail_closed: true,
+        };
+
+        let incomplete_exception_match = evaluate(
+            &bundle,
+            "chatgpt",
+            "docx",
+            true,
+            "critical",
+            100,
+            &["email".into(), "cloud_credential".into()],
+        );
+        assert_eq!(incomplete_exception_match.action, "block");
+
+        let full_exception_match = evaluate(
+            &bundle,
+            "chatgpt",
+            "pdf",
+            true,
+            "critical",
+            100,
+            &["email".into(), "cloud_credential".into()],
+        );
+        assert_eq!(full_exception_match.action, "allow");
     }
 
     #[test]

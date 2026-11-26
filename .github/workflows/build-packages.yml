@@ -290,7 +290,7 @@ jobs:
           python -m pip install --disable-pip-version-check --no-warn-script-location --target $sitePackages "pypdf>=5,<6" "python-docx>=1.1,<2" "openpyxl>=3.1,<4"
           $pth = Get-ChildItem $pythonRoot -Filter "*._pth" -File | Select-Object -First 1
           if (-not $pth) { throw "Embedded Python path configuration was not found." }
-          @("python312.zip", ".", "Lib\site-packages", "import site") | Set-Content -LiteralPath $pth.FullName -Encoding Ascii
+          @("python312.zip", ".", "Lib\site-packages", "..\engine", "import site") | Set-Content -LiteralPath $pth.FullName -Encoding Ascii
           if (-not (Test-Path (Join-Path $pythonRoot "python.exe"))) { throw "Embedded Python executable is missing." }
 
           $bundleDir = "agent/windows-installer/bundle"
